@@ -13,17 +13,6 @@ function requireAdminKey(req, res, next) {
 
 router.use(requireAdminKey);
 
-// GET /admin/reports/waiting-for-cooldown
-// Users who have claimable tiers but are currently in the 1-hour cooldown window
-router.get("/reports/waiting-for-cooldown", async (req, res) => {
-  try {
-    const rows = await db.query("SELECT * FROM v_waiting_for_cooldown ORDER BY seconds_remaining ASC");
-    res.json({ count: rows.length, rows });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // GET /admin/reports/eligible-not-claimed
 // Users with an unlocked tier, no active cooldown, but haven't claimed
 router.get("/reports/eligible-not-claimed", async (req, res) => {

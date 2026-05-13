@@ -76,54 +76,9 @@ const state = {
   testMode: null,        // null | "api" | "direct_select" | "bypass"
   claimType: "real",     // "real" | "dummy"
   showTestModal: false,
-  // cooldown
-  nextClaimAt: null,     // ISO string — when next claim becomes available
 };
 
 const root = document.getElementById("root");
-
-// ─── Countdown timer ─────────────────────────────────────────────────────────
-
-let _countdownInterval = null;
-
-function startCountdown() {
-  clearInterval(_countdownInterval);
-  if (!state.nextClaimAt) return;
-
-  _countdownInterval = setInterval(() => {
-    const secsLeft = Math.max(0, Math.ceil((new Date(state.nextClaimAt) - Date.now()) / 1000));
-
-    if (secsLeft === 0) {
-      state.nextClaimAt = null;
-      clearInterval(_countdownInterval);
-      _countdownInterval = null;
-      // Re-render to restore Claim buttons
-      render();
-      initLottie();
-      return;
-    }
-
-    const mins = String(Math.floor(secsLeft / 60)).padStart(2, "0");
-    const secs = String(secsLeft % 60).padStart(2, "0");
-    document.querySelectorAll(".cooldown-timer").forEach(el => {
-      el.textContent = `${mins}:${secs}`;
-    });
-  }, 1000);
-}
-
-function secsUntilClaim() {
-  if (state.isTester) return 0; // testers always skip cooldown
-  if (!state.nextClaimAt) return 0;
-  return Math.max(0, Math.ceil((new Date(state.nextClaimAt) - Date.now()) / 1000));
-}
-
-function cooldownLabel() {
-  const s = secsUntilClaim();
-  if (s <= 0) return null;
-  const mins = String(Math.floor(s / 60)).padStart(2, "0");
-  const secs = String(s % 60).padStart(2, "0");
-  return `${mins}:${secs}`;
-}
 
 // ─── Country sheet ────────────────────────────────────────────────────────────
 
@@ -232,7 +187,6 @@ function wireLoginEvents() {
         rewardsRendered = false;
         await loadRewardsData();
         render();
-        if (state.nextClaimAt) startCountdown();
       }
     } catch (err) {
       showLoginError(err.message);
@@ -349,18 +303,16 @@ function wireTestModal() {
     rewardsRendered = false;
     await loadRewardsData();
     render();
-    if (state.nextClaimAt) startCountdown();
   });
 
   document.getElementById("test-direct-btn")?.addEventListener("click", async () => {
     state.testMode = "direct_select";
     state.showTestModal = false;
     state.view = "rewards";
-    state.totalSpent = 24350; // all tiers visible immediately
+    state.totalSpent = 24350;
     rewardsRendered = false;
     await loadRewardsData();
     render();
-    if (state.nextClaimAt) startCountdown();
   });
 
   document.getElementById("test-bypass-btn")?.addEventListener("click", () => {
@@ -385,7 +337,6 @@ function testerToolbar() {
   }[state.testMode] || "?";
 
   const isDummy = state.claimType === "dummy";
-  const countdown = cooldownLabel();
 
   return `
     <div class="mx-3 mt-2 rounded-xl border border-amber-400/30 bg-amber-400/8 px-3 py-1.5 flex items-center gap-2">
@@ -399,11 +350,6 @@ function testerToolbar() {
         }">
         ${isDummy ? "Dummy" : "Real"}
       </button>
-      ${countdown ? `
-        <span class="text-white/20 shrink-0 ml-auto">|</span>
-        <svg width="11" height="11" viewBox="0 0 14 14" fill="none" class="shrink-0 text-white/40"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.3"/><path d="M7 4v3l2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-        <span class="text-[11px] text-white/50 shrink-0">Next: <span class="cooldown-timer font-semibold text-white/70">${countdown}</span></span>
-      ` : ""}
     </div>
   `;
 }
@@ -438,7 +384,6 @@ function tierCard(tier, isNextUp = false) {
   const isDirectSelect = state.testMode === "direct_select";
   const claimable = (state.totalSpent >= tier.unlockAt || isDirectSelect) && !isClaimed;
   const locked = !claimable && !isClaimed;
-  const onCooldown = claimable && secsUntilClaim() > 0;
 
   const shellClass = locked
     ? "border border-white/10 bg-white/5 opacity-75"
@@ -455,11 +400,6 @@ function tierCard(tier, isNextUp = false) {
   } else if (locked) {
     buttonContent = "Claim";
     buttonClass = "bg-white/20 text-white/60 cursor-not-allowed";
-    buttonDisabled = true;
-  } else if (onCooldown) {
-    // Show live countdown — the setInterval will update .cooldown-timer spans
-    buttonContent = `<span class="cooldown-timer">${cooldownLabel()}</span>`;
-    buttonClass = "bg-white/10 text-white/50 cursor-not-allowed";
     buttonDisabled = true;
   } else {
     buttonContent = "Claim";
@@ -516,13 +456,6 @@ function rewardsPage() {
   const displayed = Math.min(effectiveTotalSpent, target);
   const ratio = Math.min((effectiveTotalSpent / target) * 100, 100);
 
-  // Cooldown banner for real users (testers see it in the toolbar instead)
-  const cooldownBanner = !state.isTester && secsUntilClaim() > 0 ? `
-    <div class="mx-3 mt-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 flex items-center gap-2">
-      <svg width="11" height="11" viewBox="0 0 14 14" fill="none" class="shrink-0 text-white/40"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.3"/><path d="M7 4v3l2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-      <p class="text-[11px] text-white/60">Next claim in <span class="cooldown-timer font-semibold text-white/80">${cooldownLabel()}</span></p>
-    </div>
-  ` : "";
 
   return `
     <div class="mx-auto w-full max-w-md h-[100svh] overflow-y-auto bg-noise">
@@ -539,7 +472,6 @@ function rewardsPage() {
       </header>
 
       ${state.isTester ? testerToolbar() : ""}
-      ${cooldownBanner}
 
       <section class="mx-3 mt-4 rounded-3xl border border-white/10 bg-[#1a2230] p-5 shadow-soft progress-card">
         <div class="lottie-wrap">
@@ -892,7 +824,6 @@ async function loadRewardsData() {
     state.cycleEndDate    = data.cycle?.endDate   || null;
     state.claimed         = new Set(data.claimedTiers || []);
     state.isTester        = data.isTester         || state.isTester;
-    state.nextClaimAt     = state.isTester ? null : (data.nextClaimAt || null);
   } catch (err) {
     console.error("[rewards] Failed to load rewards data:", err.message);
   }
@@ -929,31 +860,17 @@ window.addEventListener("click", async (event) => {
       });
 
       state.claimed.add(tierId);
-      if (result.nextClaimAt) {
-        state.nextClaimAt = result.nextClaimAt;
-        startCountdown();
-      }
       playCoinClink();
       showToast(state.claimType === "dummy" ? "Dummy claim logged!" : "Coins added to your wallet!");
       sweepProgressBar();
     } catch (err) {
-      // Handle cooldown response (429)
-      if (err.status === 429 && err.data?.nextClaimAt) {
-        state.nextClaimAt = err.data.nextClaimAt;
-        startCountdown();
-        render();
-        initLottie();
-      } else {
         claimButton.disabled = false;
-        claimButton.textContent = "Claim";
-        showToast(err.message || "Failed to claim. Try again.");
-      }
+      claimButton.textContent = "Claim";
+      showToast(err.message || "Failed to claim. Try again.");
     }
   }
 
   if (event.target.closest("#logout-btn")) {
-    clearInterval(_countdownInterval);
-    _countdownInterval = null;
     localStorage.removeItem("dostt_session");
     state.view = "login";
     state.phone = "";
@@ -965,7 +882,6 @@ window.addEventListener("click", async (event) => {
     state.testMode = null;
     state.claimType = "real";
     state.showTestModal = false;
-    state.nextClaimAt = null;
     rewardsRendered = false;
     render();
   }
@@ -989,7 +905,6 @@ window.addEventListener("click", async (event) => {
       state.isTester = TEST_PHONES.includes(state.phone);
       state.view    = "rewards";
       await loadRewardsData();
-      if (state.nextClaimAt) startCountdown();
     }
   } catch (e) { /* ignore */ }
   render();

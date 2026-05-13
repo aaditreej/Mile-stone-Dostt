@@ -9,7 +9,6 @@ const router = express.Router();
 
 const TEST_PHONES = ["9500365660"];
 const MAX_TIER_POINTS = 24350;
-const COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 const TIER_DATA = [
   { id: 1,  unlockAt: 200,   coins: 20 },
@@ -65,7 +64,7 @@ async function getOrRefreshPoints(phone, countryCode = "+91") {
     synced_at:             new Date(),
   }, ["mobile_no"]);
 
-  // Populate claims_pending for all tiers now unlocked — INSERT IGNORE if already recorded
+  // Populate claims_pending for all tiers now unlocked
   const totalSpentVal = Number(r.total_spent) || 0;
   const { cycleNumber } = getCycleInfo();
   const unlockedTiers = TIER_DATA.filter(t => totalSpentVal >= t.unlockAt);
@@ -95,14 +94,13 @@ router.get("/me", async (req, res) => {
     const { cycleNumber, cycleStartDate, cycleEndDate } = getCycleInfo();
     const isTestPhone = TEST_PHONES.includes(phone);
 
-    const [points, claimedRows, user] = await Promise.all([
+    const [points, claimedRows] = await Promise.all([
       getOrRefreshPoints(phone, countryCode),
       db.query(
         `SELECT tier_id FROM claimed_rewards
          WHERE phone = $1 AND country_code = $2 AND cycle_number = $3`,
         [phone, countryCode, cycleNumber]
       ),
-      db.findOne("users", { phone, country_code: countryCode }),
     ]);
 
     res.json({
@@ -113,7 +111,6 @@ router.get("/me", async (req, res) => {
       ltv:             points ? Number(points.ltv) : 0,
       lastRefreshedAt: points ? points.last_refreshed_at_ist : null,
       claimedTiers:    claimedRows.map(r => r.tier_id),
-      nextClaimAt:     user?.next_claim_at || null,
       isTester:        isTestPhone,
       cycle: {
         number:    cycleNumber,
@@ -147,15 +144,6 @@ router.post("/claim", async (req, res) => {
 
     const { cycleNumber } = getCycleInfo();
 
-    // Guard: 1-hour global cooldown (skipped for test phones)
-    const user = await db.findOne("users", { phone, country_code: countryCode });
-    if (!isTestPhone && user?.next_claim_at && new Date(user.next_claim_at) > new Date()) {
-      return res.status(429).json({
-        error: "Claim cooldown active. Please wait before claiming again.",
-        nextClaimAt: user.next_claim_at,
-      });
-    }
-
     // Guard: already claimed this cycle?
     const existing = await db.findOne("claimed_rewards", {
       phone,
@@ -176,7 +164,7 @@ router.post("/claim", async (req, res) => {
       });
     }
 
-    // Log claim attempt as pending
+    // Log claim attempt
     const notification = await db.insert("claim_notifications", {
       phone,
       country_code:   countryCode,
@@ -258,16 +246,11 @@ router.post("/claim", async (req, res) => {
         [phone, countryCode, tierId, cycleNumber]
       );
     } catch (err) {
-      // Non-fatal — claimed_rewards is the source of truth
       logger.warn("claims_pending/claimed sync failed", { phone, tierId, err: err.message });
     }
 
-    // Set 1-hour cooldown
-    const nextClaimAt = new Date(Date.now() + COOLDOWN_MS).toISOString();
-    await db.update("users", { phone, country_code: countryCode }, { next_claim_at: nextClaimAt });
-
     logger.info("claim success", { phone, tierId, claimMode, claimType, coins: tier.coins });
-    res.json({ success: true, coinsAwarded: tier.coins, nextClaimAt, claimed });
+    res.json({ success: true, coinsAwarded: tier.coins, claimed });
   } catch (err) {
     logger.error("rewards /claim error", { err: err.message });
     res.status(500).json({ error: "Failed to claim reward" });

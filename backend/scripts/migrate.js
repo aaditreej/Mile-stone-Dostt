@@ -99,21 +99,6 @@ const tables = [
     `,
   },
   {
-    name: "ltv_eligibility",
-    sql: `
-      CREATE TABLE IF NOT EXISTS ltv_eligibility (
-        id              SERIAL PRIMARY KEY,
-        mobile_no       VARCHAR(20)   NOT NULL,
-        ltv             NUMERIC(14,2) NOT NULL DEFAULT 0,
-        is_eligible     BOOLEAN       NOT NULL DEFAULT TRUE,
-        ineligible_at   TIMESTAMPTZ,
-        updated_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-        UNIQUE (mobile_no)
-      );
-      CREATE INDEX IF NOT EXISTS idx_ltv_mobile ON ltv_eligibility (mobile_no);
-    `,
-  },
-  {
     name: "claim_notifications",
     sql: `
       CREATE TABLE IF NOT EXISTS claim_notifications (
@@ -187,17 +172,6 @@ const tables = [
     `,
   },
   {
-    name: "view: v_waiting_for_cooldown",
-    sql: `
-      CREATE OR REPLACE VIEW v_waiting_for_cooldown AS
-      SELECT u.phone, u.country_code, u.next_claim_at,
-             EXTRACT(EPOCH FROM (u.next_claim_at - NOW()))::INTEGER AS seconds_remaining
-      FROM users u
-      WHERE u.next_claim_at > NOW()
-        AND EXISTS (SELECT 1 FROM user_points up WHERE up.mobile_no = u.phone);
-    `,
-  },
-  {
     name: "view: v_eligible_not_claimed",
     sql: `
       CREATE OR REPLACE VIEW v_eligible_not_claimed AS
@@ -212,9 +186,7 @@ const tables = [
         cp.became_claimable_at,
         up.total_spent
       FROM claims_pending cp
-      LEFT JOIN user_points up ON up.mobile_no = cp.phone
-      LEFT JOIN users u ON u.phone = cp.phone AND u.country_code = cp.country_code
-      WHERE (u.next_claim_at IS NULL OR u.next_claim_at <= NOW());
+      LEFT JOIN user_points up ON up.mobile_no = cp.phone;
     `,
   },
   {
@@ -244,7 +216,6 @@ const tables = [
       SELECT
         u.phone,
         u.country_code,
-        u.next_claim_at,
         COUNT(DISTINCT ll.id)                                         AS login_attempts,
         COUNT(DISTINCT ll.id) FILTER (WHERE ll.status = 'success')    AS successful_logins,
         COUNT(DISTINCT ll.id) FILTER (WHERE ll.status = 'failed')     AS failed_logins,
@@ -256,7 +227,7 @@ const tables = [
       FROM users u
       LEFT JOIN login_logs ll ON ll.phone = u.phone
       LEFT JOIN claim_notifications cn ON cn.phone = u.phone
-      GROUP BY u.phone, u.country_code, u.next_claim_at;
+      GROUP BY u.phone, u.country_code;
     `,
   },
 ];
