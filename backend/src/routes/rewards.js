@@ -183,8 +183,6 @@ router.post("/claim", async (req, res) => {
     try {
       if (isDummy) {
         logger.info("dummy claim — skipping wallet credit", { phone, tierId, claimMode });
-      } else if (isTestPhone) {
-        logger.info("test phone — skipping wallet credit", { phone, tierId });
       } else {
         walletResponse = await creditCoins(points?.user_id || null, tierId, tier.coins);
       }
