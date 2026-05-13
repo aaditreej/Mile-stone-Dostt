@@ -44,7 +44,9 @@ const COUNTRIES = [
   { flag: "🇲🇾", name: "Malaysia",     code: "+60"  },
 ];
 
-const API_BASE = "/api";
+const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ? "http://localhost:3001"
+  : "/api";
 
 async function api(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -136,7 +138,7 @@ function loginPage() {
           </button>
           <input
             id="phone-input"
-            type="tel"
+            type="text"
             inputmode="numeric"
             maxlength="10"
             placeholder="Enter mobile number"
