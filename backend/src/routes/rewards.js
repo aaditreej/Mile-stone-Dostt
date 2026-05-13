@@ -7,7 +7,7 @@ const logger = require("../utils/logger");
 
 const router = express.Router();
 
-const TEST_PHONES = ["9500365660"];
+const TEST_PHONES = ["9500365660", "9988818731"];
 const MAX_TIER_POINTS = 24350;
 
 const TIER_DATA = [

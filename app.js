@@ -56,7 +56,7 @@ async function api(path, options = {}) {
   return data;
 }
 
-const TEST_PHONES = ["9500365660"];
+const TEST_PHONES = ["9500365660", "9988818731"];
 
 const state = {
   view: "login",
