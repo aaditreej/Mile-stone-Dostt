@@ -187,8 +187,11 @@ function wireLoginEvents() {
       } else {
         state.view = "rewards";
         rewardsRendered = false;
+        render();
+        initLottie();
         await loadRewardsData();
         render();
+        initLottie();
       }
     } catch (err) {
       showLoginError(err.message);
@@ -303,8 +306,11 @@ function wireTestModal() {
     state.showTestModal = false;
     state.view = "rewards";
     rewardsRendered = false;
+    render();
+    initLottie();
     await loadRewardsData();
     render();
+    initLottie();
   });
 
   document.getElementById("test-direct-btn")?.addEventListener("click", async () => {
@@ -313,8 +319,11 @@ function wireTestModal() {
     state.view = "rewards";
     state.totalSpent = 24350;
     rewardsRendered = false;
+    render();
+    initLottie();
     await loadRewardsData();
     render();
+    initLottie();
   });
 
   document.getElementById("test-bypass-btn")?.addEventListener("click", () => {
