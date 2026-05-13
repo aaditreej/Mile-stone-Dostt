@@ -44,7 +44,7 @@ const COUNTRIES = [
   { flag: "🇲🇾", name: "Malaysia",     code: "+60"  },
 ];
 
-const API_BASE = "http://localhost:3001";
+const API_BASE = "/api";
 
 async function api(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {

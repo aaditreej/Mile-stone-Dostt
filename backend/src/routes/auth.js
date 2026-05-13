@@ -10,18 +10,22 @@ const TEST_PHONES = ["9500365660"];
 async function lookupDosttUser(phone) {
   const queryId = Number(process.env.REDASH_VERIFY_PHONE_QUERY_ID);
   if (!queryId) return null;
-  const rows = await runQuery(queryId, { phone }, 0);
-  return rows.length ? rows[0] : null;
+  try {
+    const rows = await runQuery(queryId, { phone }, 0);
+    return rows.length ? rows[0] : null;
+  } catch (err) {
+    throw Object.assign(new Error("Redash lookup failed"), { isRedashError: true, cause: err });
+  }
 }
 
-async function recordLogin(phone, countryCode, userType, status, errorReason = null) {
+async function recordLogin(phone, countryCode, dosttUserId, status, errorReason = null) {
   try {
     await db.insert("login_logs", {
       phone,
-      country_code: countryCode,
-      user_type: userType,
+      country_code:   countryCode,
+      dostt_user_id:  dosttUserId || null,
       status,
-      error_reason: errorReason,
+      error_reason:   errorReason,
     });
   } catch (err) {
     logger.warn("Failed to write login log", { phone, err: err.message });
@@ -30,38 +34,56 @@ async function recordLogin(phone, countryCode, userType, status, errorReason = n
 
 // POST /auth/login
 // body: { phone, countryCode }
+// Flow: validate phone → check Redash → if registered, create/update user → return session
 router.post("/login", async (req, res) => {
   const { phone, countryCode = "+91" } = req.body;
-  const isTester = TEST_PHONES.includes(phone);
-  const userType = isTester ? "tester" : "real";
 
   try {
     if (!phone || !/^\d{7,15}$/.test(phone)) {
-      await recordLogin(phone || "", countryCode, userType, "failed", "Invalid phone number");
+      await recordLogin(phone || "", countryCode, null, "failed", "Invalid phone number");
       return res.status(400).json({ error: "Invalid phone number" });
     }
 
+    const isTester = TEST_PHONES.includes(phone);
+    let dosttUser = null;
+
     if (!isTester) {
-      const dosttUser = await lookupDosttUser(phone);
-      if (process.env.REDASH_VERIFY_PHONE_QUERY_ID && !dosttUser) {
-        await recordLogin(phone, countryCode, userType, "failed", "Not a registered Dostt user");
-        return res.status(403).json({ error: "Please use your Dostt registered number" });
+      // Verify phone is a registered Dostt user via Redash
+      if (!process.env.REDASH_VERIFY_PHONE_QUERY_ID) {
+        // No query configured — allow all numbers (dev mode)
+        logger.warn("REDASH_VERIFY_PHONE_QUERY_ID not set, skipping verification", { phone });
+      } else {
+        try {
+          dosttUser = await lookupDosttUser(phone);
+        } catch (err) {
+          await recordLogin(phone, countryCode, null, "failed", "Redash lookup failed");
+          logger.error("Redash verify error", { phone, err: err.message });
+          return res.status(503).json({ error: "Verification service unavailable. Please try again." });
+        }
+
+        if (!dosttUser) {
+          await recordLogin(phone, countryCode, null, "failed", "User not registered on Dostt");
+          return res.status(403).json({ error: "Please use your Dostt registered number" });
+        }
       }
     }
 
+    const dosttUserId = dosttUser?.user_id || null;
+
+    // Upsert user record
     await db.upsert(
       "users",
       { phone, country_code: countryCode },
       ["phone", "country_code"]
     );
 
-    await recordLogin(phone, countryCode, userType, "success");
+    await recordLogin(phone, countryCode, dosttUserId, "success");
 
-    logger.info("login success", { phone, userType });
+    logger.info("login success", { phone, isTester, dosttUserId });
     res.json({ success: true, user: { phone, countryCode }, isTester });
   } catch (err) {
     logger.error("login error", { phone, err: err.message });
-    await recordLogin(phone || "", countryCode, userType, "failed", err.message);
+    await recordLogin(phone || "", countryCode, null, "failed", err.message);
     res.status(500).json({ error: "Login failed" });
   }
 });

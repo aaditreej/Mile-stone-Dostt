@@ -7,7 +7,6 @@ const logger  = require("./utils/logger");
 const authRoutes    = require("./routes/auth");
 const rewardsRoutes = require("./routes/rewards");
 const adminRoutes   = require("./routes/admin");
-const { startSyncJob } = require("./jobs/syncSheets");
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -24,8 +23,6 @@ app.listen(PORT, () => {
   logger.info("server started", {
     port: PORT,
     dbAdapter: process.env.DB_ADAPTER || "postgres",
-    otpProvider: process.env.OTP_PROVIDER || "twilio",
   });
-
-  logger.info("points fetched per-user from Redash — sheet sync disabled");
+  logger.info("points fetched per-user from Redash");
 });

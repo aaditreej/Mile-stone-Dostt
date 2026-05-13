@@ -6,8 +6,5 @@ metadata:
 data:
   PORT: "3001"
   DB_ADAPTER: "postgres"
-  OTP_PROVIDER: "twilio"
   CYCLE_DAYS: "30"
-  GO_LIVE_DATE: ""          # Set to ISO timestamp when rewards go live, e.g. "2026-01-01T00:00:00+05:30"
-  GOOGLE_SHEET_NAME: "Sheet1"
-  GOOGLE_SERVICE_ACCOUNT_KEY_FILE: "/app/secrets/google-service-account.json"
+  GO_LIVE_DATE: ""   # Set to ISO timestamp when rewards go live, e.g. "2026-01-01T00:00:00+05:30"
