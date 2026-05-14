@@ -72,6 +72,7 @@ const state = {
   dataUpdatedAt: null,
   cycleEndDate: null,
   claimed: new Set(),
+  claimingTiers: new Set(),  // tiers with in-flight API calls
   toast: "",
   loading: false,
   // tester state
@@ -396,7 +397,8 @@ function progressWindow(totalSpent) {
 // ─── Tier card ────────────────────────────────────────────────────────────────
 
 function tierCard(tier, isNextUp = false) {
-  const isClaimed = state.claimed.has(tier.id);
+  const isClaimed   = state.claimed.has(tier.id);
+  const isClaiming  = state.claimingTiers.has(tier.id);
   const isDirectSelect = state.testMode === "direct_select";
   const prevTierClaimed = tier.id === 1 || state.claimed.has(tier.id - 1);
   const claimable = (state.totalSpent >= tier.unlockAt || isDirectSelect) && !isClaimed && prevTierClaimed;
@@ -404,13 +406,17 @@ function tierCard(tier, isNextUp = false) {
 
   const shellClass = locked
     ? "border border-white/10 bg-white/5 opacity-75"
-    : claimable
+    : claimable || isClaiming
       ? "border border-violet-300/60 bg-gradient-to-br from-violet-400/20 to-purple-500/20"
       : "border border-white/8 bg-white/4 opacity-50";
 
   let buttonContent, buttonClass, buttonDisabled;
 
-  if (isClaimed) {
+  if (isClaiming) {
+    buttonContent = "Claiming…";
+    buttonClass = "bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white opacity-70";
+    buttonDisabled = true;
+  } else if (isClaimed) {
     buttonContent = "Claimed";
     buttonClass = "bg-white/15 text-white/40 cursor-not-allowed";
     buttonDisabled = true;
@@ -858,10 +864,12 @@ window.addEventListener("click", async (event) => {
   if (claimButton && !claimButton.disabled) {
     const tierId = Number(claimButton.dataset.tier);
 
-    claimButton.disabled = true;
-    claimButton.textContent = "Claiming…";
+    // Mark as in-flight so render() keeps button locked even if DOM rebuilds
+    state.claimingTiers.add(tierId);
+    render();
 
     if (state.testMode === "bypass") {
+      state.claimingTiers.delete(tierId);
       state.claimed.add(tierId);
       playCoinClink();
       showToast("Coins added to your wallet!");
@@ -870,7 +878,7 @@ window.addEventListener("click", async (event) => {
     }
 
     try {
-      const result = await api("/rewards/claim", {
+      await api("/rewards/claim", {
         method: "POST",
         body: JSON.stringify({
           tierId,
@@ -881,12 +889,14 @@ window.addEventListener("click", async (event) => {
         }),
       });
 
+      state.claimingTiers.delete(tierId);
       state.claimed.add(tierId);
       playCoinClink();
       showToast(state.claimType === "dummy" ? "Dummy claim logged!" : "Coins added to your wallet!");
       sweepProgressBar();
     } catch (err) {
-      // If server says already claimed, sync the local state so UI reflects it
+      state.claimingTiers.delete(tierId);
+      // If server says already claimed, sync local state so UI reflects it
       if (err.status === 409) {
         state.claimed.add(tierId);
         showToast("Already claimed this cycle");
@@ -902,6 +912,7 @@ window.addEventListener("click", async (event) => {
     state.phone = "";
     state.country = COUNTRIES[0];
     state.claimed = new Set();
+    state.claimingTiers = new Set();
     state.totalSpent = 0;
     state.lastRefreshedAt = null;
     state.isTester = false;
