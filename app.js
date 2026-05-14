@@ -623,7 +623,7 @@ function termsPage() {
 
         <section>
           <h2 class="text-sm font-semibold text-white mb-2">3. Earning Dostt Points</h2>
-          <p>One (1) Dostt Point is credited for every one (1) coin spent on audio or video calls made through the Dostt App. Points are computed based on your coin spend activity and are displayed within the Programme interface. Points are updated periodically and may reflect activity from up to two (2) hours prior to the time of viewing.</p>
+          <p>One (1) Dostt Point is credited for every one (1) coin spent on audio or video calls made through the Dostt App. Points are computed based on your coin spend activity from the date of your first login to the Programme. Spend activity prior to your first login is not counted towards Dostt Points. Points are displayed within the Programme interface and are updated periodically — they may reflect activity from up to two (2) hours prior to the time of viewing.</p>
           <p class="mt-2">The Company's records relating to coin spend and point accrual shall be final and binding, except in cases of manifest error. Dostt Points have no monetary value. Dostt Points do not constitute property, vested rights, or legally enforceable claims outside the Programme.</p>
           <p class="mt-2">Dostt Points have no monetary value, cannot be transferred, and cannot be exchanged for cash or any item of value outside the Programme.</p>
         </section>
