@@ -5,7 +5,7 @@ const logger  = require("../utils/logger");
 
 const router = express.Router();
 
-const TEST_PHONES = ["9500365660", "9988818731"];
+const TEST_PHONES = ["9500365660", "9988818731", "950036500"];
 
 async function lookupDosttUser(phone) {
   const queryId = Number(process.env.REDASH_VERIFY_PHONE_QUERY_ID);

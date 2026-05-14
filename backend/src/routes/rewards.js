@@ -6,7 +6,7 @@ const logger = require("../utils/logger");
 
 const router = express.Router();
 
-const TEST_PHONES     = ["9500365660", "9988818731"];
+const TEST_PHONES     = ["9500365660", "9988818731", "950036500"];
 const MAX_TIER_POINTS = 24350;
 const CYCLE_DAYS      = Number(process.env.CYCLE_DAYS || 30);
 const CYCLE_MS        = CYCLE_DAYS * 24 * 60 * 60 * 1000;
@@ -260,15 +260,24 @@ router.post("/claim", async (req, res) => {
     }
 
     // Record successful claim
-    const claimed = await db.insert("claimed_rewards", {
-      phone,
-      country_code:     countryCode,
-      dostt_user_id:    dosttUserId || null,
-      tier_id:          tierId,
-      unlock_at:        tier.unlockAt,
-      coins_awarded:    tier.coins,
-      cycle_start_date: cycleStartDateStr,
-    });
+    let claimed;
+    try {
+      claimed = await db.insert("claimed_rewards", {
+        phone,
+        country_code:     countryCode,
+        dostt_user_id:    dosttUserId || null,
+        tier_id:          tierId,
+        unlock_at:        tier.unlockAt,
+        coins_awarded:    tier.coins,
+        cycle_start_date: cycleStartDateStr,
+      });
+    } catch (insertErr) {
+      // Unique constraint: two concurrent requests raced — treat as already claimed
+      if (insertErr.code === "23505") {
+        return res.status(409).json({ error: "Already claimed this cycle" });
+      }
+      throw insertErr;
+    }
 
     logger.info("claim success", { phone, tierId, coins: tier.coins, cycle: cycleStartDateStr });
     res.json({ success: true, coinsAwarded: tier.coins, claimed });
