@@ -207,6 +207,9 @@ function wireLoginEvents() {
       state.phone = e.target.value.replace(/\D/g, "");
       e.target.value = state.phone;
     });
+    phoneInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") document.getElementById("login-btn")?.click();
+    });
   }
 
   document.getElementById("country-picker-btn")?.addEventListener("click", () => {
