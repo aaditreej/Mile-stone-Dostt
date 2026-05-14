@@ -158,10 +158,6 @@ function loginPage() {
           Login
         </button>
 
-        <p class="mt-4 text-center text-[11px] text-white/40 leading-relaxed px-2">
-          Your Dostt Points start counting from the day you first log in here.
-          Coins spent before joining do not count.
-        </p>
       </div>
     </div>
     ${state.showCountrySheet ? countrySheet() : ""}
@@ -519,6 +515,7 @@ function rewardsPage() {
             </div>
           </div>
           <p class="mt-1 text-xl font-semibold">${displayed} / ${target} Dostt Points earned</p>
+          <p class="mt-1 text-[10px] text-white/35">Points count from your first login · resets every 30 days</p>
         </div>
         <div class="relative mt-3 h-3 rounded-full bg-white/10">
           <div id="progress-bar-fill" data-target="${ratio}%" class="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[#7c3aed] to-[#844aff] transition-all duration-500" style="width:${ratio}%"></div>
