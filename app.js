@@ -915,10 +915,13 @@ window.addEventListener("click", async (event) => {
       state.country = s.country || COUNTRIES[0];
       state.isTester = TEST_PHONES.includes(state.phone);
       state.view    = "rewards";
-      await loadRewardsData();
+      render();        // Show rewards page immediately — don't wait for Redash
+      initLottie();
+      await loadRewardsData(); // Load data in background
     }
   } catch (e) { /* ignore */ }
-  render();
+  render();            // Re-render once data is ready
+  initLottie();
 })();
 
 // ─── Lottie ───────────────────────────────────────────────────────────────────
