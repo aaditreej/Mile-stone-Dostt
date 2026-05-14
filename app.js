@@ -73,6 +73,7 @@ const state = {
   cycleEndDate: null,
   claimed: new Set(),
   claimingTiers: new Set(),  // tiers with in-flight API calls
+  dataLoading: true,         // true until first loadRewardsData completes
   toast: "",
   loading: false,
   // tester state
@@ -401,7 +402,7 @@ function tierCard(tier, isNextUp = false) {
   const isClaiming  = state.claimingTiers.has(tier.id);
   const isDirectSelect = state.testMode === "direct_select";
   const prevTierClaimed = tier.id === 1 || state.claimed.has(tier.id - 1);
-  const claimable = (state.totalSpent >= tier.unlockAt || isDirectSelect) && !isClaimed && prevTierClaimed;
+  const claimable = !state.dataLoading && (state.totalSpent >= tier.unlockAt || isDirectSelect) && !isClaimed && prevTierClaimed;
   const locked = !claimable && !isClaimed;
 
   const shellClass = locked
@@ -839,9 +840,11 @@ function playCoinClink() {
 // ─── Data loading ─────────────────────────────────────────────────────────────
 
 async function loadRewardsData() {
+  state.dataLoading = true;
   if (state.testMode === "bypass") {
-    state.totalSpent = 24350;
-    state.claimed = new Set();
+    state.totalSpent  = 24350;
+    state.claimed     = new Set();
+    state.dataLoading = false;
     return;
   }
   try {
@@ -854,6 +857,8 @@ async function loadRewardsData() {
     state.isTester        = data.isTester         || state.isTester;
   } catch (err) {
     console.error("[rewards] Failed to load rewards data:", err.message);
+  } finally {
+    state.dataLoading = false;
   }
 }
 
@@ -913,6 +918,7 @@ window.addEventListener("click", async (event) => {
     state.country = COUNTRIES[0];
     state.claimed = new Set();
     state.claimingTiers = new Set();
+    state.dataLoading = true;
     state.totalSpent = 0;
     state.lastRefreshedAt = null;
     state.isTester = false;
