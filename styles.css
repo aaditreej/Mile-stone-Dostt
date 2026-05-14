@@ -255,6 +255,24 @@ body,
 
 /* === Login / OTP === */
 
+/* Prevent browser autofill from painting a white background on the phone input */
+#phone-input:-webkit-autofill,
+#phone-input:-webkit-autofill:hover,
+#phone-input:-webkit-autofill:focus,
+#phone-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0px 1000px transparent inset !important;
+  box-shadow: 0 0 0px 1000px transparent inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: #ffffff;
+}
+
+#phone-input {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+}
+
 .otp-box {
   height: 52px;
   color: #ffffff !important;

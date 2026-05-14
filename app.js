@@ -140,6 +140,7 @@ function loginPage() {
             id="phone-input"
             type="text"
             inputmode="numeric"
+            autocomplete="off"
             maxlength="10"
             placeholder="Enter mobile number"
             value="${state.phone}"
