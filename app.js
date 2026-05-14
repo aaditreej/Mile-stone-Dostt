@@ -393,7 +393,8 @@ function progressWindow(totalSpent) {
 function tierCard(tier, isNextUp = false) {
   const isClaimed = state.claimed.has(tier.id);
   const isDirectSelect = state.testMode === "direct_select";
-  const claimable = (state.totalSpent >= tier.unlockAt || isDirectSelect) && !isClaimed;
+  const prevTierClaimed = tier.id === 1 || state.claimed.has(tier.id - 1);
+  const claimable = (state.totalSpent >= tier.unlockAt || isDirectSelect) && !isClaimed && prevTierClaimed;
   const locked = !claimable && !isClaimed;
 
   const shellClass = locked
