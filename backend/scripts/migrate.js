@@ -105,6 +105,18 @@ const tables = [
     `,
   },
   {
+    name: "claimed_rewards drop old cycle_number constraint and column (safe)",
+    sql: `
+      DO $$ BEGIN
+        ALTER TABLE claimed_rewards DROP CONSTRAINT IF EXISTS claimed_rewards_phone_country_code_tier_id_cycle_number_key;
+      EXCEPTION WHEN others THEN NULL;
+      END $$;
+      ALTER TABLE claimed_rewards DROP COLUMN IF EXISTS cycle_number CASCADE;
+      -- Backfill cycle_start_date for old rows that have NULL (use claimed_at date)
+      UPDATE claimed_rewards SET cycle_start_date = claimed_at::DATE WHERE cycle_start_date IS NULL;
+    `,
+  },
+  {
     name: "claim_notifications",
     sql: `
       CREATE TABLE IF NOT EXISTS claim_notifications (
