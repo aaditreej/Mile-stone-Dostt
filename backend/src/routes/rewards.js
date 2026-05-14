@@ -1,27 +1,14 @@
 const express = require("express");
 const db = require("../db/client");
-const { runQuery }    = require("../services/redash");
+const { runQuery }     = require("../services/redash");
 const { getCycleInfo } = require("../services/cycle");
-const { creditCoins } = require("../services/dosttWallet");
+const { creditCoins }  = require("../services/dosttWallet");
 const logger = require("../utils/logger");
 
 const router = express.Router();
 
-const TEST_PHONES = ["9500365660", "9988818731"];
+const TEST_PHONES    = ["9500365660", "9988818731"];
 const MAX_TIER_POINTS = 24350;
-
-// Fetch fresh Dostt user_id from Redash at claim time (same query used for login)
-async function getDosttUserId(phone) {
-  const queryId = Number(process.env.REDASH_VERIFY_PHONE_QUERY_ID);
-  if (!queryId) return null;
-  try {
-    const rows = await runQuery(queryId, { mobile_numbers: phone }, 0);
-    return rows.length ? (rows[0].user_id || null) : null;
-  } catch (err) {
-    logger.warn("Failed to fetch dostt user_id from Redash", { phone, err: err.message });
-    return null;
-  }
-}
 
 const TIER_DATA = [
   { id: 1,  unlockAt: 200,   coins: 20 },
@@ -43,11 +30,31 @@ const TIER_DATA = [
   { id: 17, unlockAt: 24350, coins: 90 },
 ];
 
-async function getOrRefreshPoints(phone, countryCode = "+91") {
-  const TWO_HOURS = 2 * 60 * 60 * 1000;
-  const cached = await db.findOne("user_points", { mobile_no: phone });
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-  if (cached && cached.synced_at && (Date.now() - new Date(cached.synced_at)) < TWO_HOURS) {
+// Get Dostt user_id from Redash (same query as login).
+// Tries cached result first (fast), retries fresh if cache misses.
+async function getDosttUserId(phone) {
+  const queryId = Number(process.env.REDASH_VERIFY_PHONE_QUERY_ID);
+  if (!queryId) return null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const maxAge = attempt === 1 ? 3600 : 0;
+      const rows = await runQuery(queryId, { mobile_numbers: phone }, maxAge);
+      if (rows.length && rows[0].user_id) return rows[0].user_id;
+    } catch (err) {
+      logger.warn(`getDosttUserId attempt ${attempt} failed`, { phone, err: err.message });
+    }
+  }
+  return null;
+}
+
+// Fetch user points from cache; refresh from Redash if older than 2 hours.
+async function getOrRefreshPoints(phone) {
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  const cached = await db.findOne("user_points", { phone: phone });
+
+  if (cached && cached.updated_at && (Date.now() - new Date(cached.updated_at)) < TWO_HOURS) {
     return cached;
   }
 
@@ -67,38 +74,21 @@ async function getOrRefreshPoints(phone, countryCode = "+91") {
   const r = rows[0];
   await db.upsert("user_points", {
     user_id:               r.user_id               || null,
-    mobile_no:             phone,
+    phone:             phone,
     wallet_balance:        Number(r.wallet_balance)  || 0,
     spent_on_audio:        Number(r.spent_on_audio)  || 0,
     spent_on_video:        Number(r.spent_on_video)  || 0,
     total_spent:           Number(r.total_spent)      || 0,
     last_refreshed_at_ist: r.last_refreshed_at_ist   || null,
     ltv:                   Number(r.ltv)              || 0,
-    synced_at:             new Date(),
-  }, ["mobile_no"]);
+    updated_at:             new Date(),
+  }, ["phone"]);
 
-  // Populate claims_pending for all tiers now unlocked
-  const totalSpentVal = Number(r.total_spent) || 0;
-  const { cycleNumber } = getCycleInfo();
-  const unlockedTiers = TIER_DATA.filter(t => totalSpentVal >= t.unlockAt);
-  for (const tier of unlockedTiers) {
-    try {
-      await db.query(
-        `INSERT INTO claims_pending
-           (user_id, phone, country_code, tier_id, tier_unlock_at, coins, cycle_number)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (phone, country_code, tier_id, cycle_number) DO NOTHING`,
-        [r.user_id || null, phone, countryCode, tier.id, tier.unlockAt, tier.coins, cycleNumber]
-      );
-    } catch (err) {
-      logger.warn("claims_pending insert failed", { phone, tierId: tier.id, err: err.message });
-    }
-  }
-
-  return db.findOne("user_points", { mobile_no: phone });
+  return db.findOne("user_points", { phone: phone });
 }
 
-// GET /rewards/me?phone=...&countryCode=...
+// ── GET /rewards/me ───────────────────────────────────────────────────────────
+
 router.get("/me", async (req, res) => {
   try {
     const { phone, countryCode = "+91" } = req.query;
@@ -108,7 +98,7 @@ router.get("/me", async (req, res) => {
     const isTestPhone = TEST_PHONES.includes(phone);
 
     const [points, claimedRows] = await Promise.all([
-      getOrRefreshPoints(phone, countryCode),
+      getOrRefreshPoints(phone),
       db.query(
         `SELECT tier_id FROM claimed_rewards
          WHERE phone = $1 AND country_code = $2 AND cycle_number = $3`,
@@ -125,11 +115,7 @@ router.get("/me", async (req, res) => {
       lastRefreshedAt: points ? points.last_refreshed_at_ist : null,
       claimedTiers:    claimedRows.map(r => r.tier_id),
       isTester:        isTestPhone,
-      cycle: {
-        number:    cycleNumber,
-        startDate: cycleStartDate,
-        endDate:   cycleEndDate,
-      },
+      cycle: { number: cycleNumber, startDate: cycleStartDate, endDate: cycleEndDate },
     });
   } catch (err) {
     logger.error("rewards /me error", { err: err.message });
@@ -137,10 +123,11 @@ router.get("/me", async (req, res) => {
   }
 });
 
-// POST /rewards/claim
+// ── POST /rewards/claim ───────────────────────────────────────────────────────
 // body: { phone, countryCode, tierId, claimMode, claimType }
-//   claimMode: "api" (default) | "direct_select"  — direct_select skips points check (test phones only)
-//   claimType: "real" (default) | "dummy"          — dummy skips wallet credit (test phones only)
+//   claimMode: "api" | "direct_select"  — direct_select skips points check (test phones only)
+//   claimType: "real" | "dummy"          — dummy skips wallet credit (test phones only)
+
 router.post("/claim", async (req, res) => {
   try {
     const { phone, countryCode = "+91", claimMode = "api", claimType = "real" } = req.body;
@@ -151,25 +138,20 @@ router.post("/claim", async (req, res) => {
     const tier = TIER_DATA.find(t => t.id === tierId);
     if (!tier) return res.status(400).json({ error: "Invalid tierId" });
 
-    const isTestPhone = TEST_PHONES.includes(phone);
+    const isTestPhone    = TEST_PHONES.includes(phone);
     const isDirectSelect = claimMode === "direct_select" && isTestPhone;
-    const isDummy = claimType === "dummy" && isTestPhone;
+    const isDummy        = claimType === "dummy" && isTestPhone;
 
     const { cycleNumber } = getCycleInfo();
 
-    // Guard: already claimed this cycle?
+    // Guard: already claimed?
     const existing = await db.findOne("claimed_rewards", {
-      phone,
-      country_code: countryCode,
-      tier_id: tierId,
-      cycle_number: cycleNumber,
+      phone, country_code: countryCode, tier_id: tierId, cycle_number: cycleNumber,
     });
-    if (existing) {
-      return res.status(409).json({ error: "Already claimed this cycle" });
-    }
+    if (existing) return res.status(409).json({ error: "Already claimed this cycle" });
 
-    // Guard: enough points? (skipped for direct_select test phones)
-    const points = await getOrRefreshPoints(phone, countryCode);
+    // Guard: enough points?
+    const points     = await getOrRefreshPoints(phone);
     const totalSpent = isTestPhone ? MAX_TIER_POINTS : (points ? Number(points.total_spent) : 0);
     if (!isDirectSelect && totalSpent < tier.unlockAt) {
       return res.status(403).json({
@@ -177,50 +159,49 @@ router.post("/claim", async (req, res) => {
       });
     }
 
-    // Fetch fresh user_id from Redash BEFORE logging claim
+    // Resolve user_id
     const dosttUserId = isDummy ? null : await getDosttUserId(phone);
     if (!isDummy && !dosttUserId) {
       logger.error("claim blocked — could not resolve dostt user_id", { phone, tierId });
       return res.status(502).json({ error: "Could not resolve your Dostt account. Please try again." });
     }
 
-    // Log claim attempt
+    // Log attempt as pending
     const notification = await db.insert("claim_notifications", {
       phone,
       country_code:   countryCode,
+      dostt_user_id:  dosttUserId || null,
       tier_id:        tierId,
       tier_unlock_at: tier.unlockAt,
-      tier_coins:     tier.coins,
-      cycle_number:   cycleNumber,
       coins_awarded:  tier.coins,
+      cycle_number:   cycleNumber,
       claim_mode:     claimMode,
       claim_type:     claimType,
-      dostt_user_id:  dosttUserId || null,
       status:         "pending",
     });
 
+    // Credit wallet
     let walletResponse = null;
     try {
       if (isDummy) {
-        logger.info("dummy claim — skipping wallet credit", { phone, tierId, claimMode });
+        logger.info("dummy claim — skipping wallet credit", { phone, tierId });
       } else {
         walletResponse = await creditCoins(dosttUserId, tierId, tier.coins);
       }
-
       await db.update("claim_notifications", { id: notification.id }, {
-        status: "success",
-        redash_response: walletResponse ? JSON.stringify(walletResponse) : null,
+        status:          "success",
+        wallet_response: walletResponse ? JSON.stringify(walletResponse) : null,
       });
     } catch (walletErr) {
       await db.update("claim_notifications", { id: notification.id }, {
-        status: "failed",
+        status:         "failed",
         failure_reason: walletErr.message,
       });
-      logger.error("Wallet coin credit failed", { phone, tierId, err: walletErr.message });
+      logger.error("Wallet credit failed", { phone, tierId, err: walletErr.message });
       return res.status(502).json({ error: "Failed to credit coins. Please try again." });
     }
 
-    // Record in claimed_rewards
+    // Record successful claim
     const claimed = await db.insert("claimed_rewards", {
       phone,
       country_code:  countryCode,
@@ -230,42 +211,6 @@ router.post("/claim", async (req, res) => {
       coins_awarded: tier.coins,
       cycle_number:  cycleNumber,
     });
-
-    // Move from claims_pending → claims_claimed
-    try {
-      const pending = await db.findOne("claims_pending", {
-        phone,
-        country_code: countryCode,
-        tier_id:      tierId,
-        cycle_number: cycleNumber,
-      });
-
-      await db.query(
-        `INSERT INTO claims_claimed
-           (user_id, phone, country_code, tier_id, tier_unlock_at, coins,
-            cycle_number, became_claimable_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (phone, country_code, tier_id, cycle_number) DO NOTHING`,
-        [
-          dosttUserId || null,
-          phone,
-          countryCode,
-          tierId,
-          tier.unlockAt,
-          tier.coins,
-          cycleNumber,
-          pending?.became_claimable_at || null,
-        ]
-      );
-
-      await db.query(
-        `DELETE FROM claims_pending
-         WHERE phone = $1 AND country_code = $2 AND tier_id = $3 AND cycle_number = $4`,
-        [phone, countryCode, tierId, cycleNumber]
-      );
-    } catch (err) {
-      logger.warn("claims_pending/claimed sync failed", { phone, tierId, err: err.message });
-    }
 
     logger.info("claim success", { phone, tierId, claimMode, claimType, coins: tier.coins });
     res.json({ success: true, coinsAwarded: tier.coins, claimed });

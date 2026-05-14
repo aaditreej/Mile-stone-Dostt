@@ -255,7 +255,7 @@ body,
 
 /* === Login / OTP === */
 
-/* Prevent browser autofill from painting a white background on the phone input */
+/* Prevent browser autofill white background on phone input */
 #phone-input:-webkit-autofill,
 #phone-input:-webkit-autofill:hover,
 #phone-input:-webkit-autofill:focus,
