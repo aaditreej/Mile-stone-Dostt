@@ -78,6 +78,15 @@ router.post("/login", async (req, res) => {
       ["phone", "country_code"]
     );
 
+    // Set cycle_start_date on first login only (never overwrite existing)
+    const existingUser = await db.findOne("users", { phone, country_code: countryCode });
+    if (!existingUser?.cycle_start_date) {
+      await db.update("users", { phone, country_code: countryCode }, {
+        cycle_start_date:      new Date(),
+        cycle_baseline_points: 0,  // will be set to raw total_spent on first points fetch
+      });
+    }
+
     await recordLogin(phone, countryCode, dosttUserId, "success");
 
     logger.info("login success", { phone, isTester, dosttUserId });

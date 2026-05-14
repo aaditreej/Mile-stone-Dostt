@@ -11,12 +11,21 @@ const tables = [
     name: "users",
     sql: `
       CREATE TABLE IF NOT EXISTS users (
-        id           SERIAL PRIMARY KEY,
-        phone        VARCHAR(20) NOT NULL,
-        country_code VARCHAR(10) NOT NULL DEFAULT '+91',
-        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        id                    SERIAL PRIMARY KEY,
+        phone                 VARCHAR(20)   NOT NULL,
+        country_code          VARCHAR(10)   NOT NULL DEFAULT '+91',
+        cycle_start_date      TIMESTAMPTZ,
+        cycle_baseline_points NUMERIC(14,2) NOT NULL DEFAULT 0,
+        created_at            TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
         UNIQUE (phone, country_code)
       );
+    `,
+  },
+  {
+    name: "users cycle columns (safe)",
+    sql: `
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS cycle_start_date      TIMESTAMPTZ;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS cycle_baseline_points NUMERIC(14,2) NOT NULL DEFAULT 0;
     `,
   },
   {
@@ -69,19 +78,30 @@ const tables = [
     name: "claimed_rewards",
     sql: `
       CREATE TABLE IF NOT EXISTS claimed_rewards (
-        id            SERIAL PRIMARY KEY,
-        phone         VARCHAR(20)  NOT NULL,
-        country_code  VARCHAR(10)  NOT NULL DEFAULT '+91',
-        dostt_user_id VARCHAR(100),
-        tier_id       INTEGER      NOT NULL,
-        unlock_at     INTEGER      NOT NULL DEFAULT 0,
-        coins_awarded INTEGER      NOT NULL DEFAULT 0,
-        cycle_number  INTEGER      NOT NULL DEFAULT 1,
-        claimed_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-        UNIQUE (phone, country_code, tier_id, cycle_number)
+        id               SERIAL PRIMARY KEY,
+        phone            VARCHAR(20)  NOT NULL,
+        country_code     VARCHAR(10)  NOT NULL DEFAULT '+91',
+        dostt_user_id    VARCHAR(100),
+        tier_id          INTEGER      NOT NULL,
+        unlock_at        INTEGER      NOT NULL DEFAULT 0,
+        coins_awarded    INTEGER      NOT NULL DEFAULT 0,
+        cycle_start_date DATE         NOT NULL,
+        claimed_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        UNIQUE (phone, country_code, tier_id, cycle_start_date)
       );
       CREATE INDEX IF NOT EXISTS idx_claimed_phone ON claimed_rewards (phone, country_code);
-      CREATE INDEX IF NOT EXISTS idx_claimed_cycle ON claimed_rewards (cycle_number);
+    `,
+  },
+  {
+    name: "claimed_rewards cycle_start_date column (safe)",
+    sql: `
+      ALTER TABLE claimed_rewards ADD COLUMN IF NOT EXISTS cycle_start_date DATE;
+      CREATE INDEX IF NOT EXISTS idx_claimed_cycle ON claimed_rewards (cycle_start_date);
+      DO $$ BEGIN
+        ALTER TABLE claimed_rewards ADD CONSTRAINT claimed_rewards_cycle_unique
+          UNIQUE (phone, country_code, tier_id, cycle_start_date);
+      EXCEPTION WHEN duplicate_table THEN NULL;
+      END $$;
     `,
   },
   {
@@ -96,8 +116,6 @@ const tables = [
         tier_unlock_at INTEGER,
         coins_awarded  INTEGER,
         cycle_number   INTEGER      NOT NULL,
-        claim_mode     VARCHAR(20),
-        claim_type     VARCHAR(20),
         status         VARCHAR(20)  NOT NULL DEFAULT 'pending',
         failure_reason TEXT,
         wallet_response JSONB,
@@ -105,6 +123,28 @@ const tables = [
       );
       CREATE INDEX IF NOT EXISTS idx_notif_phone  ON claim_notifications (phone);
       CREATE INDEX IF NOT EXISTS idx_notif_status ON claim_notifications (status);
+    `,
+  },
+
+  {
+    name: "claim_notifications drop test columns (safe)",
+    sql: `
+      ALTER TABLE claim_notifications DROP COLUMN IF EXISTS claim_mode CASCADE;
+      ALTER TABLE claim_notifications DROP COLUMN IF EXISTS claim_type CASCADE;
+    `,
+  },
+  {
+    name: "claim_notifications rename redash_response → wallet_response (safe)",
+    sql: `
+      DO $$ BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'claim_notifications' AND column_name = 'redash_response'
+        ) THEN
+          ALTER TABLE claim_notifications RENAME COLUMN redash_response TO wallet_response;
+        END IF;
+      END $$;
+      ALTER TABLE claim_notifications ADD COLUMN IF NOT EXISTS wallet_response JSONB;
     `,
   },
 
@@ -140,8 +180,6 @@ const tables = [
         cn.tier_id,
         cn.tier_unlock_at,
         cn.coins_awarded,
-        cn.claim_mode,
-        cn.claim_type,
         cn.status,
         cn.failure_reason,
         cn.created_at
@@ -196,6 +234,38 @@ const tables = [
           WHERE cr.phone = up.phone
             AND cr.tier_id = t.tier_id
         )
+      ORDER BY up.total_spent DESC, t.tier_id;
+    `,
+  },
+  {
+    name: "view: v_tier_status",
+    sql: `
+      CREATE OR REPLACE VIEW v_tier_status AS
+      -- One row per user per tier: shows claimed / eligible (not yet claimed) / locked
+      SELECT
+        up.phone,
+        up.total_spent,
+        t.tier_id,
+        t.unlock_at,
+        t.coins,
+        CASE
+          WHEN cr.id IS NOT NULL            THEN 'claimed'
+          WHEN up.total_spent >= t.unlock_at THEN 'eligible'
+          ELSE                                   'locked'
+        END                                          AS status,
+        cr.claimed_at,
+        cr.coins_awarded
+      FROM user_points up
+      CROSS JOIN (
+        VALUES
+          (1,200,20),(2,400,20),(3,700,20),(4,1000,30),(5,1400,30),
+          (6,1900,30),(7,2500,40),(8,3200,40),(9,4000,50),(10,4900,50),
+          (11,6100,60),(12,7600,60),(13,9600,70),(14,12100,70),
+          (15,15350,80),(16,19350,80),(17,24350,90)
+      ) AS t(tier_id, unlock_at, coins)
+      LEFT JOIN claimed_rewards cr
+        ON cr.phone    = up.phone
+       AND cr.tier_id  = t.tier_id
       ORDER BY up.total_spent DESC, t.tier_id;
     `,
   },
