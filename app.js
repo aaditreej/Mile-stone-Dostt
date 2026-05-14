@@ -69,6 +69,7 @@ const state = {
   countrySearch: "",
   totalSpent: 0,
   lastRefreshedAt: null,
+  dataUpdatedAt: null,
   cycleEndDate: null,
   claimed: new Set(),
   toast: "",
@@ -497,7 +498,11 @@ function rewardsPage() {
           <div class="flex items-center justify-between">
             <p class="text-[11px] uppercase tracking-widest text-white/60">Your Progress</p>
             <div class="flex flex-col items-end gap-0.5">
-              <p class="text-[10px] text-white/45">${state.lastRefreshedAt ? "Last updated: " + new Date(state.lastRefreshedAt).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST" : "Refreshes every 2 hours"}</p>
+              <p class="text-[10px] text-white/45">${(() => {
+                const ts = state.lastRefreshedAt || state.dataUpdatedAt;
+                if (!ts) return "";
+                return "Updated: " + new Date(ts).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST";
+              })()}</p>
               ${state.cycleEndDate ? `<p class="text-[10px] text-dosttGold/80">Resets in ${Math.max(0, Math.ceil((new Date(state.cycleEndDate) - Date.now()) / (1000 * 60 * 60 * 24)))} days</p>` : ""}
             </div>
           </div>
@@ -837,6 +842,7 @@ async function loadRewardsData() {
     const data = await api(`/rewards/me?phone=${encodeURIComponent(state.phone)}&countryCode=${encodeURIComponent(state.country.code)}`);
     state.totalSpent      = data.totalSpent      || 0;
     state.lastRefreshedAt = data.lastRefreshedAt  || null;
+    state.dataUpdatedAt   = data.dataUpdatedAt    || null;
     state.cycleEndDate    = data.cycle?.endDate   || null;
     state.claimed         = new Set(data.claimedTiers || []);
     state.isTester        = data.isTester         || state.isTester;
@@ -880,9 +886,13 @@ window.addEventListener("click", async (event) => {
       showToast(state.claimType === "dummy" ? "Dummy claim logged!" : "Coins added to your wallet!");
       sweepProgressBar();
     } catch (err) {
-        claimButton.disabled = false;
-      claimButton.textContent = "Claim";
-      showToast(err.message || "Failed to claim. Try again.");
+      // If server says already claimed, sync the local state so UI reflects it
+      if (err.status === 409) {
+        state.claimed.add(tierId);
+        showToast("Already claimed this cycle");
+      } else {
+        showToast(err.message || "Failed to claim. Try again.");
+      }
     }
   }
 

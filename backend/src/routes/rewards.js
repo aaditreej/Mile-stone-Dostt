@@ -167,6 +167,7 @@ router.get("/me", async (req, res) => {
       spentOnVideo:    points ? Number(points.spent_on_video) : 0,
       ltv:             points ? Number(points.ltv) : 0,
       lastRefreshedAt: points ? points.last_refreshed_at_ist : null,
+      dataUpdatedAt:   points ? points.updated_at : null,
       claimedTiers:    claimedRows.map(r => r.tier_id),
       isTester:        isTestPhone,
       cycle: {
