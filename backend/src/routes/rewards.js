@@ -177,6 +177,13 @@ router.post("/claim", async (req, res) => {
       });
     }
 
+    // Fetch fresh user_id from Redash BEFORE logging claim
+    const dosttUserId = isDummy ? null : await getDosttUserId(phone);
+    if (!isDummy && !dosttUserId) {
+      logger.error("claim blocked — could not resolve dostt user_id", { phone, tierId });
+      return res.status(502).json({ error: "Could not resolve your Dostt account. Please try again." });
+    }
+
     // Log claim attempt
     const notification = await db.insert("claim_notifications", {
       phone,
@@ -191,13 +198,6 @@ router.post("/claim", async (req, res) => {
       dostt_user_id:  dosttUserId || null,
       status:         "pending",
     });
-
-    // Always fetch fresh user_id from Redash at claim time
-    const dosttUserId = isDummy ? null : await getDosttUserId(phone);
-    if (!isDummy && !dosttUserId) {
-      logger.error("claim blocked — could not resolve dostt user_id", { phone, tierId });
-      return res.status(502).json({ error: "Could not resolve your Dostt account. Please try again." });
-    }
 
     let walletResponse = null;
     try {
