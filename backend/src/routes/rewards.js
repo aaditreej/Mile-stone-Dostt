@@ -57,6 +57,18 @@ async function getUserCycleStartDate(phone, countryCode, rawTotalSpent = null) {
       cycle_baseline_points: rawTotalSpent ?? user.cycle_baseline_points,
     });
     logger.info("cycle reset", { phone, newCycleStart: cycleStart });
+    // Audit the reset
+    const newCycleStr = cycleStart.toISOString().split("T")[0];
+    db.insert("points_audit", {
+      phone,
+      country_code:         countryCode,
+      event:                "cycle_reset",
+      raw_total_spent:      rawTotalSpent ?? 0,
+      baseline_points:      rawTotalSpent ?? 0,
+      adjusted_total_spent: 0,
+      cycle_start_date:     newCycleStr,
+      note:                 `new cycle started; new baseline = ${rawTotalSpent}`,
+    }).catch(() => {});
   }
 
   // Return as DATE string "YYYY-MM-DD" — used as cycle scope in claimed_rewards
@@ -136,6 +148,20 @@ async function getOrRefreshPoints(phone, countryCode) {
     ltv:                   Number(r.ltv)              || 0,
     updated_at:            new Date(),
   }, ["phone"]);
+
+  // Audit log — every points fetch is recorded so complaints can be investigated
+  const cycleStr = await getUserCycleStartDate(phone, countryCode);
+  const isFirstFetch = !cached;
+  await db.insert("points_audit", {
+    phone,
+    country_code:         countryCode,
+    event:                isFirstFetch ? "first_fetch" : "refresh",
+    raw_total_spent:      rawTotalSpent,
+    baseline_points:      finalBaseline,
+    adjusted_total_spent: adjustedTotalSpent,
+    cycle_start_date:     cycleStr,
+    note: `raw ${rawTotalSpent} − baseline ${finalBaseline} = ${adjustedTotalSpent}`,
+  }).catch(e => logger.warn("points_audit insert failed", { phone, err: e.message }));
 
   return db.findOne("user_points", { phone });
 }

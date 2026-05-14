@@ -160,6 +160,27 @@ const tables = [
     `,
   },
 
+  // ── Points audit log ─────────────────────────────────────────────────────────
+
+  {
+    name: "points_audit",
+    sql: `
+      CREATE TABLE IF NOT EXISTS points_audit (
+        id                    SERIAL PRIMARY KEY,
+        phone                 VARCHAR(20)   NOT NULL,
+        country_code          VARCHAR(10)   NOT NULL DEFAULT '+91',
+        event                 VARCHAR(30)   NOT NULL,
+        raw_total_spent       NUMERIC(14,2) NOT NULL DEFAULT 0,
+        baseline_points       NUMERIC(14,2) NOT NULL DEFAULT 0,
+        adjusted_total_spent  NUMERIC(14,2) NOT NULL DEFAULT 0,
+        cycle_start_date      DATE          NOT NULL,
+        note                  TEXT,
+        created_at            TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_phone ON points_audit (phone, created_at DESC);
+    `,
+  },
+
   // ── Views ────────────────────────────────────────────────────────────────────
 
   {

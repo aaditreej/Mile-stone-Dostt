@@ -157,6 +157,11 @@ function loginPage() {
         >
           Login
         </button>
+
+        <p class="mt-4 text-center text-[11px] text-white/40 leading-relaxed px-2">
+          Your Dostt Points start counting from the day you first log in here.
+          Coins spent before joining do not count.
+        </p>
       </div>
     </div>
     ${state.showCountrySheet ? countrySheet() : ""}
