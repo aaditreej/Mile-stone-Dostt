@@ -10,6 +10,19 @@ const router = express.Router();
 const TEST_PHONES = ["9500365660", "9988818731"];
 const MAX_TIER_POINTS = 24350;
 
+// Fetch fresh Dostt user_id from Redash at claim time (same query used for login)
+async function getDosttUserId(phone) {
+  const queryId = Number(process.env.REDASH_VERIFY_PHONE_QUERY_ID);
+  if (!queryId) return null;
+  try {
+    const rows = await runQuery(queryId, { mobile_numbers: phone }, 0);
+    return rows.length ? (rows[0].user_id || null) : null;
+  } catch (err) {
+    logger.warn("Failed to fetch dostt user_id from Redash", { phone, err: err.message });
+    return null;
+  }
+}
+
 const TIER_DATA = [
   { id: 1,  unlockAt: 200,   coins: 20 },
   { id: 2,  unlockAt: 400,   coins: 20 },
@@ -175,16 +188,23 @@ router.post("/claim", async (req, res) => {
       coins_awarded:  tier.coins,
       claim_mode:     claimMode,
       claim_type:     claimType,
-      dostt_user_id:  points?.user_id || null,
+      dostt_user_id:  dosttUserId || null,
       status:         "pending",
     });
+
+    // Always fetch fresh user_id from Redash at claim time
+    const dosttUserId = isDummy ? null : await getDosttUserId(phone);
+    if (!isDummy && !dosttUserId) {
+      logger.error("claim blocked — could not resolve dostt user_id", { phone, tierId });
+      return res.status(502).json({ error: "Could not resolve your Dostt account. Please try again." });
+    }
 
     let walletResponse = null;
     try {
       if (isDummy) {
         logger.info("dummy claim — skipping wallet credit", { phone, tierId, claimMode });
       } else {
-        walletResponse = await creditCoins(points?.user_id || null, tierId, tier.coins);
+        walletResponse = await creditCoins(dosttUserId, tierId, tier.coins);
       }
 
       await db.update("claim_notifications", { id: notification.id }, {
@@ -204,7 +224,7 @@ router.post("/claim", async (req, res) => {
     const claimed = await db.insert("claimed_rewards", {
       phone,
       country_code:  countryCode,
-      dostt_user_id: points?.user_id || null,
+      dostt_user_id: dosttUserId || null,
       tier_id:       tierId,
       unlock_at:     tier.unlockAt,
       coins_awarded: tier.coins,
@@ -227,7 +247,7 @@ router.post("/claim", async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (phone, country_code, tier_id, cycle_number) DO NOTHING`,
         [
-          points?.user_id || null,
+          dosttUserId || null,
           phone,
           countryCode,
           tierId,

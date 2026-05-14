@@ -11,7 +11,8 @@ async function lookupDosttUser(phone) {
   const queryId = Number(process.env.REDASH_VERIFY_PHONE_QUERY_ID);
   if (!queryId) return null;
   try {
-    const rows = await runQuery(queryId, { phone }, 0);
+    // Query uses {{ mobile_numbers }} parameter
+    const rows = await runQuery(queryId, { mobile_numbers: phone }, 0);
     return rows.length ? rows[0] : null;
   } catch (err) {
     throw Object.assign(new Error("Redash lookup failed"), { isRedashError: true, cause: err });
