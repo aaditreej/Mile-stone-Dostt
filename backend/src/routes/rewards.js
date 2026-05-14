@@ -6,7 +6,7 @@ const logger = require("../utils/logger");
 
 const router = express.Router();
 
-const TEST_PHONES     = ["9500365660", "9988818731", "950036500"];
+const TEST_PHONES     = ["9500365660", "9988818731"];
 const MAX_TIER_POINTS = 24350;
 const CYCLE_DAYS      = Number(process.env.CYCLE_DAYS || 30);
 const CYCLE_MS        = CYCLE_DAYS * 24 * 60 * 60 * 1000;
