@@ -200,20 +200,21 @@ router.get("/me", async (req, res) => {
 
     const isTestPhone = TEST_PHONES.includes(phone);
 
-    // Get user's personal cycle dates
+    // Refresh points first — this may reset the cycle, so we must read
+    // cycle_start_date AFTER it completes to avoid stale cycleStartDateStr
+    const points = await getOrRefreshPoints(phone, countryCode);
+
+    // Get user's personal cycle dates (post-refresh so cycle reset is reflected)
     const user = await db.findOne("users", { phone, country_code: countryCode });
     const cycleStart = user?.cycle_start_date ? new Date(user.cycle_start_date) : new Date();
     const cycleEnd   = new Date(cycleStart.getTime() + CYCLE_MS);
     const cycleStartDateStr = cycleStart.toISOString().split("T")[0];
 
-    const [points, claimedRows] = await Promise.all([
-      getOrRefreshPoints(phone, countryCode),
-      db.query(
-        `SELECT tier_id FROM claimed_rewards
-         WHERE phone = $1 AND country_code = $2 AND cycle_start_date = $3`,
-        [phone, countryCode, cycleStartDateStr]
-      ),
-    ]);
+    const claimedRows = await db.query(
+      `SELECT tier_id FROM claimed_rewards
+       WHERE phone = $1 AND country_code = $2 AND cycle_start_date = $3`,
+      [phone, countryCode, cycleStartDateStr]
+    );
 
     res.json({
       totalSpent:      isTestPhone ? MAX_TIER_POINTS : (points ? Number(points.total_spent) : 0),
