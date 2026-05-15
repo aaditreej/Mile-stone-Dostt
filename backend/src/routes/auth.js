@@ -79,12 +79,16 @@ router.post("/login", async (req, res) => {
     );
 
     // Set cycle_start_date on first login only (never overwrite existing)
+    // Always persist dostt_user_id so rewards.js can use it without a Redash call
     const existingUser = await db.findOne("users", { phone, country_code: countryCode });
+    const updates = {};
     if (!existingUser?.cycle_start_date) {
-      await db.update("users", { phone, country_code: countryCode }, {
-        cycle_start_date:      new Date(),
-        cycle_baseline_points: 0,  // will be set to raw total_spent on first points fetch
-      });
+      updates.cycle_start_date      = new Date();
+      updates.cycle_baseline_points = 0;  // will be set to raw total_spent on first points fetch
+    }
+    if (dosttUserId) updates.dostt_user_id = dosttUserId;
+    if (Object.keys(updates).length) {
+      await db.update("users", { phone, country_code: countryCode }, updates);
     }
 
     await recordLogin(phone, countryCode, dosttUserId, "success");

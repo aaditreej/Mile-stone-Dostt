@@ -26,6 +26,7 @@ const tables = [
     sql: `
       ALTER TABLE users ADD COLUMN IF NOT EXISTS cycle_start_date      TIMESTAMPTZ;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS cycle_baseline_points NUMERIC(14,2) NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS dostt_user_id         VARCHAR(100);
     `,
   },
   {

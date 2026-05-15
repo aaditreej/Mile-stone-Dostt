@@ -106,9 +106,17 @@ async function getOrRefreshPoints(phone, countryCode) {
   const queryId = Number(process.env.REDASH_USER_POINTS_QUERY_ID);
   if (!queryId) return cached;
 
+  // Resolve dostt_user_id from DB (stored at login via 17538 — no extra Redash call needed)
+  const userRecord = await db.findOne("users", { phone, country_code: countryCode });
+  const dosttUserId = userRecord?.dostt_user_id;
+  if (!dosttUserId) {
+    logger.warn("dostt_user_id not found in users table, skipping points fetch", { phone });
+    return cached;
+  }
+
   let rows;
   try {
-    rows = await runQuery(queryId, { phone }, 0);
+    rows = await runQuery(queryId, { user_id: dosttUserId }, 0);
   } catch (err) {
     logger.warn("Redash points fetch failed, using cached data", { phone, err: err.message });
     return cached;
