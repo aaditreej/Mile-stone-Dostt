@@ -318,7 +318,9 @@ router.post("/claim", async (req, res) => {
       }
       if (!dosttUserId) {
         logger.error("claim blocked — could not resolve dostt user_id", { phone, tierId });
-        return res.status(502).json({ error: "Could not resolve your Dostt account. Please try again." });
+        return res.status(502).json({
+          error: "Account lookup failed. Please log out and back in, then try claiming again.",
+        });
       }
     }
 
@@ -351,6 +353,11 @@ router.post("/claim", async (req, res) => {
     } catch (insertErr) {
       // Unique constraint: two concurrent requests raced — treat as already claimed
       if (insertErr.code === "23505") {
+        // Close the notification so it doesn't accumulate as a dangling "pending" row
+        await db.update("claim_notifications", { id: notification.id }, {
+          status:         "duplicate",
+          failure_reason: "race condition — tier already claimed this cycle",
+        }).catch(() => {});
         return res.status(409).json({ error: "Already claimed this cycle" });
       }
       throw insertErr;
@@ -369,15 +376,33 @@ router.post("/claim", async (req, res) => {
         wallet_response: walletResponse ? JSON.stringify(walletResponse) : null,
       });
     } catch (walletErr) {
-      // Wallet failed — roll back the claim record so the user can retry
+      // Wallet failed — roll back the claim record so the user can retry.
+      // Track whether the rollback itself succeeded so ops and the user get the right signal.
+      let rollbackOk = true;
       await db.query("DELETE FROM claimed_rewards WHERE id = $1", [claimed.id])
-        .catch(e => logger.error("failed to roll back claimed_rewards after wallet error", { phone, tierId, err: e.message }));
+        .catch(e => {
+          rollbackOk = false;
+          // CRITICAL: tier is permanently locked for this user this cycle with no coins credited.
+          // Ops must manually DELETE the claimed_rewards row (id: claimed.id) and re-credit coins.
+          logger.error("CRITICAL: claimed_rewards rollback failed after wallet error — manual fix needed", {
+            phone, tierId, claimedId: claimed.id, claimedCycle: cycleStartDateStr,
+            walletErr: walletErr.message, rollbackErr: e.message,
+          });
+        });
+
       await db.update("claim_notifications", { id: notification.id }, {
-        status:         "failed",
-        failure_reason: walletErr.message,
-      });
-      logger.error("Wallet credit failed", { phone, tierId, err: walletErr.message });
-      return res.status(502).json({ error: "Failed to credit coins. Please try again." });
+        status:         rollbackOk ? "failed" : "failed_unrolled",
+        failure_reason: rollbackOk
+          ? walletErr.message
+          : `wallet: ${walletErr.message} | ROLLBACK FAILED — claimed_rewards id ${claimed.id} must be deleted manually`,
+      }).catch(() => {});
+
+      logger.error("Wallet credit failed", { phone, tierId, rollbackOk, err: walletErr.message });
+
+      const userMsg = rollbackOk
+        ? "Failed to credit coins. Please try again."
+        : "Something went wrong on our end. Please contact support — do not tap Claim again for this tier.";
+      return res.status(502).json({ error: userMsg });
     }
 
     logger.info("claim success", { phone, tierId, coins: tier.coins, cycle: cycleStartDateStr });

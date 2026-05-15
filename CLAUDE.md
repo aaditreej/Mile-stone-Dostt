@@ -321,6 +321,11 @@ Test phones always get `totalSpent = 24350`.
 ```
 **Order matters:** claimed_rewards is inserted BEFORE the wallet call so a wallet failure can never leave coins credited without a DB record. On wallet failure the claim record is deleted so the user can retry.
 
+**Rollback states:**
+- Normal wallet failure → DELETE claimed_rewards succeeds → notification status `"failed"` → user gets 502, can retry
+- Wallet failure + DELETE also fails → notification status `"failed_unrolled"` → CRITICAL log → user told to contact support (not retry). Ops must manually `DELETE FROM claimed_rewards WHERE id = <claimedId>` before the user can claim again.
+- Race condition (23505 on INSERT claimed_rewards) → notification status `"duplicate"` → 409 returned
+
 **Responses:**
 ```
 200 { success: true, coinsAwarded: 30, claimed: {...} }
@@ -442,11 +447,17 @@ The unique constraint is the last line of defence against double claims (race co
 ```sql
 phone, country_code, dostt_user_id
 tier_id, tier_unlock_at, coins_awarded
-status                VARCHAR(20)    -- "pending" | "success" | "failed"
+status                VARCHAR(20)    -- "pending" | "success" | "failed" | "failed_unrolled" | "duplicate"
 failure_reason        TEXT
 wallet_response       JSONB          -- raw Dostt Wallet API response
 created_at            TIMESTAMPTZ
 ```
+Status meanings:
+- `pending`         — inserted at start of claim; should never stay pending (indicates crash mid-flow)
+- `success`         — wallet credited, claimed_rewards recorded
+- `failed`          — wallet failed, claimed_rewards rolled back, user can retry
+- `failed_unrolled` — wallet failed AND rollback failed; claimed_rewards row still exists, coins NOT credited; requires manual fix (delete claimed_rewards row by id in failure_reason)
+- `duplicate`       — concurrent request raced; claimed_rewards unique constraint fired; 409 returned
 
 ## login_logs
 ```sql
