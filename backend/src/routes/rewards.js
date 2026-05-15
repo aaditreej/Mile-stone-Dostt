@@ -120,11 +120,11 @@ async function getOrRefreshPoints(phone, countryCode) {
   const rawTotalSpent = Number(r.total_spent) || 0;
 
   // Get user's cycle info (resets cycle if expired, passing raw spend as new baseline)
-  await getUserCycleStartDate(phone, countryCode, rawTotalSpent);
+  // Capture return value here — reused for audit log below (avoids a second DB call)
+  const cycleStr = await getUserCycleStartDate(phone, countryCode, rawTotalSpent);
 
   // Re-fetch user after possible cycle reset
   const user = await db.findOne("users", { phone, country_code: countryCode });
-  const baseline = Number(user?.cycle_baseline_points) || 0;
 
   // If baseline was never set (first fetch after login), set it now
   const isFirstFetchBaseline = user && (user.cycle_baseline_points === null || user.cycle_baseline_points === 0) && !cached;
@@ -154,7 +154,6 @@ async function getOrRefreshPoints(phone, countryCode) {
   }, ["phone"]);
 
   // Audit log — every points fetch is recorded so complaints can be investigated
-  const cycleStr = await getUserCycleStartDate(phone, countryCode);
   const isFirstFetch = !cached;
   await db.insert("points_audit", {
     phone,

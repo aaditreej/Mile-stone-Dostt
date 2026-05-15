@@ -948,10 +948,15 @@ window.addEventListener("click", async (event) => {
       state.phone   = s.phone   || "";
       state.country = s.country || COUNTRIES[0];
       state.isTester = TEST_PHONES.includes(state.phone);
-      state.view    = "rewards";
-      render();        // Show rewards page immediately — don't wait for Redash
-      initLottie();
-      await loadRewardsData(); // Load data in background
+      if (state.isTester) {
+        state.showTestModal = true;
+        render();
+      } else {
+        state.view = "rewards";
+        render();        // Show rewards page immediately — don't wait for Redash
+        initLottie();
+        await loadRewardsData(); // Load data in background
+      }
     }
   } catch (e) { /* ignore */ }
   render();            // Re-render once data is ready

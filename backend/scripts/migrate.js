@@ -246,7 +246,7 @@ const tables = [
     name: "view: v_eligible_not_claimed",
     sql: `
       CREATE OR REPLACE VIEW v_eligible_not_claimed AS
-      -- Users who have unlocked a tier but haven't claimed it yet this cycle
+      -- Users who have unlocked a tier but haven't claimed it yet THIS cycle
       SELECT
         up.phone  AS phone,
         up.total_spent,
@@ -254,6 +254,7 @@ const tables = [
         t.unlock_at,
         t.coins
       FROM user_points up
+      JOIN users u ON u.phone = up.phone
       CROSS JOIN (
         VALUES
           (1,200,20),(2,400,20),(3,700,20),(4,1000,30),(5,1400,30),
@@ -264,8 +265,9 @@ const tables = [
       WHERE up.total_spent >= t.unlock_at
         AND NOT EXISTS (
           SELECT 1 FROM claimed_rewards cr
-          WHERE cr.phone = up.phone
-            AND cr.tier_id = t.tier_id
+          WHERE cr.phone    = up.phone
+            AND cr.tier_id  = t.tier_id
+            AND cr.cycle_start_date = u.cycle_start_date::DATE
         )
       ORDER BY up.total_spent DESC, t.tier_id;
     `,
