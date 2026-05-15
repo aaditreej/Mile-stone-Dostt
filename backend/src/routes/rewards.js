@@ -116,8 +116,8 @@ async function getOrRefreshPoints(phone, countryCode) {
 
   let rows;
   try {
-    // 17564 returns all eligible users — use 1-hour Redash cache so one run serves everyone
-    rows = await runQuery(queryId, {}, 3600);
+    // 17564 returns all eligible users — always fetch fresh from Redash (backend 2h cache handles throttling)
+    rows = await runQuery(queryId, {}, 0);
   } catch (err) {
     logger.warn("Redash points fetch failed, using cached data", { phone, err: err.message });
     return cached;
