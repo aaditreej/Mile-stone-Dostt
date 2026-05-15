@@ -127,14 +127,18 @@ async function getOrRefreshPoints(phone, countryCode) {
   const baseline = Number(user?.cycle_baseline_points) || 0;
 
   // If baseline was never set (first fetch after login), set it now
-  if (user && (user.cycle_baseline_points === null || user.cycle_baseline_points === 0) && !cached) {
+  const isFirstFetchBaseline = user && (user.cycle_baseline_points === null || user.cycle_baseline_points === 0) && !cached;
+  if (isFirstFetchBaseline) {
     await db.update("users", { phone, country_code: countryCode }, {
       cycle_baseline_points: rawTotalSpent,
     });
   }
 
   // Adjusted = what user earned SINCE joining rewards program (or since last cycle reset)
-  const finalBaseline = user?.cycle_baseline_points != null ? Number(user.cycle_baseline_points) : rawTotalSpent;
+  // If we just set the baseline above, use rawTotalSpent directly (stale user object still has 0)
+  const finalBaseline = isFirstFetchBaseline
+    ? rawTotalSpent
+    : (user?.cycle_baseline_points != null ? Number(user.cycle_baseline_points) : rawTotalSpent);
   const adjustedTotalSpent = Math.max(0, rawTotalSpent - finalBaseline);
 
   await db.upsert("user_points", {
