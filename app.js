@@ -49,13 +49,23 @@ const API_BASE = (window.location.hostname === "localhost" || window.location.ho
   : "/api";
 
 async function api(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  const data = await res.json();
-  if (!res.ok) throw Object.assign(new Error(data.error || "Request failed"), { status: res.status, data });
-  return data;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000); // 30s timeout
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      ...options,
+    });
+    const data = await res.json();
+    if (!res.ok) throw Object.assign(new Error(data.error || "Request failed"), { status: res.status, data });
+    return data;
+  } catch (err) {
+    if (err.name === "AbortError") throw Object.assign(new Error("Request timed out. Please try again."), { status: 408 });
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const TEST_PHONES = ["9500365660", "9988818731"];
@@ -815,7 +825,7 @@ function spawnCoinsAt(cx, cy, count = 5) {
 
 // ─── Coin audio ───────────────────────────────────────────────────────────────
 
-const _coinAudio = new Audio("assets/Coins dropping in Piggy Bank Sound Effect  Coins Sound Effect.mp3");
+const _coinAudio = new Audio("assets/coin-clink.mp3");
 _coinAudio.preload = "auto";
 
 function playCoinClink() {
@@ -868,6 +878,8 @@ async function loadRewardsData() {
     state.isTester        = data.isTester         || state.isTester;
   } catch (err) {
     console.error("[rewards] Failed to load rewards data:", err.message);
+    state.toast = "Could not load rewards. Pull down to refresh.";
+    setTimeout(() => { state.toast = ""; render(); }, 3000);
   } finally {
     state.dataLoading = false;
   }
