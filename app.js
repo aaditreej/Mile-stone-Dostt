@@ -483,7 +483,7 @@ function rewardsPage() {
 
 
   return `
-    <div class="mx-auto w-full max-w-md h-[100svh] overflow-y-auto bg-noise">
+    <div id="page-scroll" class="mx-auto w-full max-w-md h-[100svh] overflow-y-auto bg-noise">
       <div class="flex min-h-[100svh] flex-col">
       <header class="relative px-4 pt-5 pb-3 shrink-0">
         <div class="flex items-center gap-3">
@@ -726,7 +726,16 @@ function render() {
       render();
     });
   } else {
+    // Save scroll positions before DOM rebuild so claim clicks don't jump the page
+    const prevPageScroll  = document.getElementById("page-scroll")?.scrollTop  || 0;
+    const prevTierScroll  = document.querySelector(".reward-scroll")?.scrollTop || 0;
+
     root.innerHTML = rewardsPage();
+
+    // Restore scroll positions immediately after rebuild
+    if (prevPageScroll) { const el = document.getElementById("page-scroll");  if (el) el.scrollTop = prevPageScroll; }
+    if (prevTierScroll) { const el = document.querySelector(".reward-scroll"); if (el) el.scrollTop = prevTierScroll; }
+
     initLottie();
     if (!rewardsRendered && state.totalSpent > 0) {
       rewardsRendered = true;
