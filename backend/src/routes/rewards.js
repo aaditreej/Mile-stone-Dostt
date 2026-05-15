@@ -6,6 +6,7 @@ const logger = require("../utils/logger");
 
 const router = express.Router();
 
+// ⚠️ Also defined in: app.js (line ~71) and routes/auth.js (line ~8) — keep all three in sync
 const TEST_PHONES     = ["9500365660", "9988818731"];
 const MAX_TIER_POINTS = 24350;
 const CYCLE_DAYS      = Number(process.env.CYCLE_DAYS || 30);
@@ -137,6 +138,20 @@ async function getOrRefreshPoints(phone, countryCode) {
   const r = rows.find(row => String(row.user_id) === String(dosttUserId));
   if (!r) {
     logger.info("user not in 17564 result set (LTV out of range or no spend)", { phone, dosttUserId });
+    // Audit the exclusion so ops can investigate if a user reports missing points
+    const excludeCycleStr = userRecord?.cycle_start_date
+      ? new Date(userRecord.cycle_start_date).toISOString().split("T")[0]
+      : new Date().toISOString().split("T")[0];
+    db.insert("points_audit", {
+      phone,
+      country_code:         countryCode,
+      event:                "ltv_excluded",
+      raw_total_spent:      0,
+      baseline_points:      0,
+      adjusted_total_spent: 0,
+      cycle_start_date:     excludeCycleStr,
+      note:                 `dostt_user_id ${dosttUserId} not found in 17564 (LTV out of range or no spend)`,
+    }).catch(e => logger.warn("points_audit ltv_excluded insert failed", { phone, err: e.message }));
     return cached;
   }
   const rawTotalSpent = Number(r.total_spent) || 0;
@@ -266,6 +281,19 @@ router.post("/claim", async (req, res) => {
     });
     if (existing) return res.status(409).json({ error: "Already claimed this cycle" });
 
+    // Guard: sequential order — must claim tier N-1 before tier N
+    if (tierId > 1 && !isDirectSelect) {
+      const prevClaimed = await db.findOne("claimed_rewards", {
+        phone,
+        country_code:     countryCode,
+        tier_id:          tierId - 1,
+        cycle_start_date: cycleStartDateStr,
+      });
+      if (!prevClaimed) {
+        return res.status(403).json({ error: `Must claim tier ${tierId - 1} before tier ${tierId}.` });
+      }
+    }
+
     // Guard: enough points?
     const points     = await getOrRefreshPoints(phone, countryCode);
     const totalSpent = isTestPhone ? MAX_TIER_POINTS : (points ? Number(points.total_spent) : 0);
@@ -279,7 +307,15 @@ router.post("/claim", async (req, res) => {
     let dosttUserId = null;
     if (!isDummy) {
       const claimUser = await db.findOne("users", { phone, country_code: countryCode });
-      dosttUserId = claimUser?.dostt_user_id || await getDosttUserId(phone);
+      dosttUserId = claimUser?.dostt_user_id;
+      if (!dosttUserId) {
+        // Pre-migration user: dostt_user_id was not saved at login. Look it up now and save.
+        logger.warn("dostt_user_id null at claim time — falling back to 17538 lookup", { phone, tierId });
+        dosttUserId = await getDosttUserId(phone);
+        if (dosttUserId) {
+          await db.update("users", { phone, country_code: countryCode }, { dostt_user_id: dosttUserId });
+        }
+      }
       if (!dosttUserId) {
         logger.error("claim blocked — could not resolve dostt user_id", { phone, tierId });
         return res.status(502).json({ error: "Could not resolve your Dostt account. Please try again." });
@@ -298,28 +334,9 @@ router.post("/claim", async (req, res) => {
       status:         "pending",
     });
 
-    // Credit wallet
-    let walletResponse = null;
-    try {
-      if (isDummy) {
-        logger.info("dummy claim — skipping wallet credit", { phone, tierId });
-      } else {
-        walletResponse = await creditCoins(dosttUserId, tierId, tier.coins);
-      }
-      await db.update("claim_notifications", { id: notification.id }, {
-        status:          "success",
-        wallet_response: walletResponse ? JSON.stringify(walletResponse) : null,
-      });
-    } catch (walletErr) {
-      await db.update("claim_notifications", { id: notification.id }, {
-        status:         "failed",
-        failure_reason: walletErr.message,
-      });
-      logger.error("Wallet credit failed", { phone, tierId, err: walletErr.message });
-      return res.status(502).json({ error: "Failed to credit coins. Please try again." });
-    }
-
-    // Record successful claim
+    // Insert claimed_rewards FIRST — this is the idempotency gate.
+    // The unique constraint prevents double-credit even under concurrent requests.
+    // Wallet is credited AFTER so a wallet failure can never leave an un-recorded claim.
     let claimed;
     try {
       claimed = await db.insert("claimed_rewards", {
@@ -337,6 +354,30 @@ router.post("/claim", async (req, res) => {
         return res.status(409).json({ error: "Already claimed this cycle" });
       }
       throw insertErr;
+    }
+
+    // Credit wallet — after the claim is recorded
+    let walletResponse = null;
+    try {
+      if (isDummy) {
+        logger.info("dummy claim — skipping wallet credit", { phone, tierId });
+      } else {
+        walletResponse = await creditCoins(dosttUserId, tierId, tier.coins);
+      }
+      await db.update("claim_notifications", { id: notification.id }, {
+        status:          "success",
+        wallet_response: walletResponse ? JSON.stringify(walletResponse) : null,
+      });
+    } catch (walletErr) {
+      // Wallet failed — roll back the claim record so the user can retry
+      await db.query("DELETE FROM claimed_rewards WHERE id = $1", [claimed.id])
+        .catch(e => logger.error("failed to roll back claimed_rewards after wallet error", { phone, tierId, err: e.message }));
+      await db.update("claim_notifications", { id: notification.id }, {
+        status:         "failed",
+        failure_reason: walletErr.message,
+      });
+      logger.error("Wallet credit failed", { phone, tierId, err: walletErr.message });
+      return res.status(502).json({ error: "Failed to credit coins. Please try again." });
     }
 
     logger.info("claim success", { phone, tierId, coins: tier.coins, cycle: cycleStartDateStr });

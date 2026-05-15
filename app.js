@@ -68,6 +68,7 @@ async function api(path, options = {}) {
   }
 }
 
+// ⚠️ Also defined in: backend/src/routes/auth.js and backend/src/routes/rewards.js — keep all three in sync
 const TEST_PHONES = ["9500365660", "9988818731"];
 
 const state = {
