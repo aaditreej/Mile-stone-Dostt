@@ -116,7 +116,8 @@ async function getOrRefreshPoints(phone, countryCode) {
 
   let rows;
   try {
-    rows = await runQuery(queryId, { user_id: dosttUserId }, 0);
+    // 17564 returns all eligible users — use 1-hour Redash cache so one run serves everyone
+    rows = await runQuery(queryId, {}, 3600);
   } catch (err) {
     logger.warn("Redash points fetch failed, using cached data", { phone, err: err.message });
     return cached;
@@ -124,7 +125,12 @@ async function getOrRefreshPoints(phone, countryCode) {
 
   if (!rows || !rows.length) return cached;
 
-  const r = rows[0];
+  // Pick this user's row from the full result set
+  const r = rows.find(row => String(row.user_id) === String(dosttUserId));
+  if (!r) {
+    logger.info("user not in 17564 result set (LTV out of range or no spend)", { phone, dosttUserId });
+    return cached;
+  }
   const rawTotalSpent = Number(r.total_spent) || 0;
 
   // Get user's cycle info (resets cycle if expired, passing raw spend as new baseline)
