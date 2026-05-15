@@ -106,12 +106,20 @@ async function getOrRefreshPoints(phone, countryCode) {
   const queryId = Number(process.env.REDASH_USER_POINTS_QUERY_ID);
   if (!queryId) return cached;
 
-  // Resolve dostt_user_id from DB (stored at login via 17538 — no extra Redash call needed)
+  // Resolve dostt_user_id — read from DB (stored at login), fall back to 17538 for users
+  // who logged in before the dostt_user_id column was added
   const userRecord = await db.findOne("users", { phone, country_code: countryCode });
-  const dosttUserId = userRecord?.dostt_user_id;
+  let dosttUserId = userRecord?.dostt_user_id;
   if (!dosttUserId) {
-    logger.warn("dostt_user_id not found in users table, skipping points fetch", { phone });
-    return cached;
+    logger.info("dostt_user_id missing in DB, falling back to 17538 lookup", { phone });
+    dosttUserId = await getDosttUserId(phone);
+    if (dosttUserId) {
+      // Save it so future fetches skip the Redash call
+      await db.update("users", { phone, country_code: countryCode }, { dostt_user_id: dosttUserId });
+    } else {
+      logger.warn("could not resolve dostt_user_id, skipping points fetch", { phone });
+      return cached;
+    }
   }
 
   let rows;
@@ -266,11 +274,15 @@ router.post("/claim", async (req, res) => {
       });
     }
 
-    // Resolve user_id
-    const dosttUserId = isDummy ? null : await getDosttUserId(phone);
-    if (!isDummy && !dosttUserId) {
-      logger.error("claim blocked — could not resolve dostt user_id", { phone, tierId });
-      return res.status(502).json({ error: "Could not resolve your Dostt account. Please try again." });
+    // Resolve user_id — read from DB first, fall back to 17538 if missing
+    let dosttUserId = null;
+    if (!isDummy) {
+      const claimUser = await db.findOne("users", { phone, country_code: countryCode });
+      dosttUserId = claimUser?.dostt_user_id || await getDosttUserId(phone);
+      if (!dosttUserId) {
+        logger.error("claim blocked — could not resolve dostt user_id", { phone, tierId });
+        return res.status(502).json({ error: "Could not resolve your Dostt account. Please try again." });
+      }
     }
 
     // Log attempt
