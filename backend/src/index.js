@@ -15,6 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+app.get("/",       (_req, res) => res.json({ status: "ok" })); // k8s probe fallback
 app.use("/auth",    authRoutes);
 app.use("/rewards", rewardsRoutes);
 app.use("/admin",   adminRoutes);
