@@ -315,11 +315,15 @@ async function migrate() {
       console.log(`  ✓  ${table.name}`);
     } catch (err) {
       console.error(`  ✗  ${table.name}: ${err.message}`);
-      process.exit(1);
+      throw err;
     }
   }
   console.log("\nAll tables ready.");
-  process.exit(0);
 }
 
-migrate();
+// Run standalone: node scripts/migrate.js
+if (require.main === module) {
+  migrate().then(() => process.exit(0)).catch(() => process.exit(1));
+}
+
+module.exports = { migrate };

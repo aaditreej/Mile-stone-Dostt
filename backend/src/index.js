@@ -4,6 +4,7 @@ const express = require("express");
 const cors    = require("cors");
 const path    = require("path");
 const logger  = require("./utils/logger");
+const { migrate } = require("../scripts/migrate");
 
 const authRoutes    = require("./routes/auth");
 const rewardsRoutes = require("./routes/rewards");
@@ -34,9 +35,17 @@ app.get("*", (_req, res) => {
   res.sendFile(path.join(FRONTEND_DIR, "index.html"));
 });
 
-app.listen(PORT, () => {
-  logger.info("server started", {
-    port: PORT,
-    dbAdapter: process.env.DB_ADAPTER || "postgres",
+// ── Run migrations then start ──────────────────────────────────────────────────
+migrate()
+  .then(() => {
+    app.listen(PORT, () => {
+      logger.info("server started", {
+        port: PORT,
+        dbAdapter: process.env.DB_ADAPTER || "postgres",
+      });
+    });
+  })
+  .catch(err => {
+    logger.error("Migration failed — server not started", { err: err.message });
+    process.exit(1);
   });
-});
