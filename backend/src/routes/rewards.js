@@ -130,9 +130,10 @@ async function getOrRefreshPoints(phone, countryCode) {
   let rows;
   try {
     // 17564 returns all eligible users — always fetch fresh from Redash (backend 2h cache handles throttling)
-    // max_age: 7200 = use Redash cache if < 2h old (matches backend's own 2h cache TTL)
-    // Avoids triggering a fresh BigQuery job on every fetch, which causes 30s+ timeouts
-    rows = await runQuery(queryId, {}, 7200);
+    // max_age: 3600 = use Redash cache if < 1h old
+    // Redash query 17564 is scheduled to auto-refresh every 1 hour,
+    // so this always hits a warm cache instantly — never triggers a live BigQuery job
+    rows = await runQuery(queryId, {}, 3600);
   } catch (err) {
     logger.warn("Redash points fetch failed, using cached data", { phone, err: err.message });
     return cached;
