@@ -265,7 +265,12 @@ router.post("/claim", async (req, res) => {
     const isDirectSelect = claimMode === "direct_select" && isTestPhone;
     const isDummy        = claimType === "dummy" && isTestPhone;
 
-    // Get user's current cycle start date
+    // Refresh points FIRST — this may reset the cycle if 30 days have passed,
+    // so cycle_start_date must be read AFTER this call to avoid stale baseline.
+    const points     = await getOrRefreshPoints(phone, countryCode);
+    const totalSpent = isTestPhone ? MAX_TIER_POINTS : (points ? Number(points.total_spent) : 0);
+
+    // Get user's current cycle start date (post-refresh so any cycle reset is reflected)
     const cycleStartDateStr = await getUserCycleStartDate(phone, countryCode);
     if (!cycleStartDateStr) return res.status(400).json({ error: "User not found. Please login again." });
 
@@ -292,8 +297,6 @@ router.post("/claim", async (req, res) => {
     }
 
     // Guard: enough points?
-    const points     = await getOrRefreshPoints(phone, countryCode);
-    const totalSpent = isTestPhone ? MAX_TIER_POINTS : (points ? Number(points.total_spent) : 0);
     if (!isDirectSelect && totalSpent < tier.unlockAt) {
       return res.status(403).json({
         error: `Not enough Dostt Points. Need ${tier.unlockAt}, have ${totalSpent}.`,
@@ -370,7 +373,7 @@ router.post("/claim", async (req, res) => {
       }
       await db.update("claim_notifications", { id: notification.id }, {
         status:          "success",
-        wallet_response: walletResponse ? JSON.stringify(walletResponse) : null,
+        wallet_response: walletResponse || null,
       });
     } catch (walletErr) {
       // Wallet failed — roll back the claim record so the user can retry.

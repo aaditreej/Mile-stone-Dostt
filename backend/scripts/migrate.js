@@ -140,6 +140,13 @@ const tables = [
   },
 
   {
+    name: "claim_notifications cycle_number DEFAULT 1 (safe)",
+    sql: `
+      ALTER TABLE claim_notifications ALTER COLUMN cycle_number SET DEFAULT 1;
+    `,
+  },
+
+  {
     name: "claim_notifications drop test columns (safe)",
     sql: `
       ALTER TABLE claim_notifications DROP COLUMN IF EXISTS claim_mode CASCADE;
@@ -288,6 +295,8 @@ const tables = [
     sql: `
       CREATE OR REPLACE VIEW v_tier_status AS
       -- One row per user per tier: shows claimed / eligible (not yet claimed) / locked
+      -- claimed_rewards is scoped to the user's current cycle so previous-cycle claims
+      -- don't incorrectly show as 'claimed' in the new cycle.
       SELECT
         up.phone,
         up.total_spent,
@@ -302,6 +311,7 @@ const tables = [
         cr.claimed_at,
         cr.coins_awarded
       FROM user_points up
+      JOIN users u ON u.phone = up.phone
       CROSS JOIN (
         VALUES
           (1,200,20),(2,400,20),(3,700,20),(4,1000,30),(5,1400,30),
@@ -310,8 +320,9 @@ const tables = [
           (15,15350,80),(16,19350,80),(17,24350,90)
       ) AS t(tier_id, unlock_at, coins)
       LEFT JOIN claimed_rewards cr
-        ON cr.phone    = up.phone
-       AND cr.tier_id  = t.tier_id
+        ON cr.phone             = up.phone
+       AND cr.tier_id           = t.tier_id
+       AND cr.cycle_start_date  = u.cycle_start_date::DATE
       ORDER BY up.total_spent DESC, t.tier_id;
     `,
   },

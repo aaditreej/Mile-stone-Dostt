@@ -72,7 +72,7 @@ router.get("/reports/user-performance", async (req, res) => {
     if (phone) {
       rows = await db.query("SELECT * FROM v_user_performance WHERE phone = $1", [phone]);
     } else {
-      rows = await db.query("SELECT * FROM v_user_performance ORDER BY total_coins_claimed DESC LIMIT 500");
+      rows = await db.query("SELECT * FROM v_user_performance ORDER BY total_coins_earned DESC LIMIT 500");
     }
     res.json({ count: rows.length, rows });
   } catch (err) {
