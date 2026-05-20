@@ -7,7 +7,7 @@ const logger = require("../utils/logger");
 const router = express.Router();
 
 // ⚠️ Also defined in: app.js (line ~71) and routes/auth.js (line ~8) — keep all three in sync
-const TEST_PHONES     = ["9500365660", "9988818731"];
+const TEST_PHONES     = ["9988818731"];
 const MAX_TIER_POINTS = 24350;
 const CYCLE_DAYS      = Number(process.env.CYCLE_DAYS || 30);
 const CYCLE_MS        = CYCLE_DAYS * 24 * 60 * 60 * 1000;
