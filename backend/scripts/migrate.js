@@ -190,12 +190,22 @@ const tables = [
   },
 
   // ── Fix last_refreshed_at_ist column type: TIMESTAMPTZ → TEXT ────────────────
-  // Redash returns this as "DD/MM/YYYY HH:MM" which Postgres can't parse as TIMESTAMPTZ
+  // Redash returns this as "DD/MM/YYYY HH:MM" which Postgres can't parse as TIMESTAMPTZ.
+  // Wrapped in DO block so it's a true no-op if the column is already TEXT (safe to re-run).
   {
     name: "user_points last_refreshed_at_ist → TEXT (safe)",
     sql: `
-      ALTER TABLE user_points
-        ALTER COLUMN last_refreshed_at_ist TYPE TEXT USING last_refreshed_at_ist::TEXT;
+      DO $$ BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'user_points'
+            AND column_name = 'last_refreshed_at_ist'
+            AND data_type <> 'text'
+        ) THEN
+          ALTER TABLE user_points
+            ALTER COLUMN last_refreshed_at_ist TYPE TEXT USING last_refreshed_at_ist::TEXT;
+        END IF;
+      END $$;
     `,
   },
 
