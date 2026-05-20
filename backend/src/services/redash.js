@@ -11,8 +11,8 @@
 
 const axios = require("axios");
 
-const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS  = 30_000;
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS  = 60_000;
 
 function client() {
   return axios.create({
