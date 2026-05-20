@@ -182,6 +182,16 @@ const tables = [
     `,
   },
 
+  // ── Fix last_refreshed_at_ist column type: TIMESTAMPTZ → TEXT ────────────────
+  // Redash returns this as "DD/MM/YYYY HH:MM" which Postgres can't parse as TIMESTAMPTZ
+  {
+    name: "user_points last_refreshed_at_ist → TEXT (safe)",
+    sql: `
+      ALTER TABLE user_points
+        ALTER COLUMN last_refreshed_at_ist TYPE TEXT USING last_refreshed_at_ist::TEXT;
+    `,
+  },
+
   // ── Views ────────────────────────────────────────────────────────────────────
 
   {
