@@ -14,7 +14,15 @@ async function lookupDosttUser(phone) {
   try {
     // Query uses {{ mobile_numbers }} parameter
     const rows = await runQuery(queryId, { mobile_numbers: phone }, 0);
-    return rows.length ? rows[0] : null;
+    if (!rows.length) return null;
+    // Defensively confirm the returned row actually matches this phone.
+    // Redash strips the +91 country prefix, so normalise before comparing.
+    const normalised = phone.replace(/^(\+?91)/, "");
+    const match = rows.find(r => {
+      const rowPhone = String(r.mobile_no || "").replace(/^(\+?91)/, "");
+      return rowPhone === normalised;
+    });
+    return match || null;
   } catch (err) {
     throw Object.assign(new Error("Redash lookup failed"), { isRedashError: true, cause: err });
   }
