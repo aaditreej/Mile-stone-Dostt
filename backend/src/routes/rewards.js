@@ -93,20 +93,11 @@ async function getDosttUserId(phone) {
 
 // Fetch points from Redash (or cache). Applies per-user cycle baseline subtraction.
 async function getOrRefreshPoints(phone, countryCode) {
-  const TWO_HOURS    = 2 * 60 * 60 * 1000;
-  const FIFTEEN_MINS = 15 * 60 * 1000;
   const cached = await db.findOne("user_points", { phone });
 
   // Test phones: totalSpent is always overridden to MAX_TIER_POINTS in /me,
-  // so skip the 30-second Redash call entirely and return cached (or null) immediately.
+  // so skip the Redash call entirely and return cached (or null) immediately.
   if (TEST_PHONES.includes(phone)) return cached;
-
-  // Use shorter 15-min cache if user has 0 points — picks up new spend quickly
-  // after first login when datastream lag may have returned 0 initially.
-  const cacheTTL = (cached && Number(cached.total_spent) === 0) ? FIFTEEN_MINS : TWO_HOURS;
-  if (cached && cached.updated_at && (Date.now() - new Date(cached.updated_at)) < cacheTTL) {
-    return cached;
-  }
 
   const queryId = Number(process.env.REDASH_USER_POINTS_QUERY_ID);
   if (!queryId) return cached;
@@ -130,10 +121,9 @@ async function getOrRefreshPoints(phone, countryCode) {
   let rows;
   try {
     // 17564 returns all eligible users — always fetch fresh from Redash (backend 2h cache handles throttling)
-    // max_age: 3600 = use Redash cache if < 1h old
-    // Redash query 17564 is scheduled to auto-refresh every 1 hour,
-    // so this always hits a warm cache instantly — never triggers a live BigQuery job
-    rows = await runQuery(queryId, {}, 3600);
+    // max_age: 7200 = use Redash cache if < 2h old (matches Redash's auto-refresh schedule)
+    // Redash refreshes 17564 every 2h automatically — this always hits the warm cache instantly
+    rows = await runQuery(queryId, {}, 7200);
   } catch (err) {
     logger.warn("Redash points fetch failed, using cached data", { phone, err: err.message });
     return cached;
