@@ -93,14 +93,18 @@ async function getDosttUserId(phone) {
 
 // Fetch points from Redash (or cache). Applies per-user cycle baseline subtraction.
 async function getOrRefreshPoints(phone, countryCode) {
-  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  const TWO_HOURS    = 2 * 60 * 60 * 1000;
+  const FIFTEEN_MINS = 15 * 60 * 1000;
   const cached = await db.findOne("user_points", { phone });
 
   // Test phones: totalSpent is always overridden to MAX_TIER_POINTS in /me,
   // so skip the 30-second Redash call entirely and return cached (or null) immediately.
   if (TEST_PHONES.includes(phone)) return cached;
 
-  if (cached && cached.updated_at && (Date.now() - new Date(cached.updated_at)) < TWO_HOURS) {
+  // Use shorter 15-min cache if user has 0 points — picks up new spend quickly
+  // after first login when datastream lag may have returned 0 initially.
+  const cacheTTL = (cached && Number(cached.total_spent) === 0) ? FIFTEEN_MINS : TWO_HOURS;
+  if (cached && cached.updated_at && (Date.now() - new Date(cached.updated_at)) < cacheTTL) {
     return cached;
   }
 

@@ -79,9 +79,9 @@ const state = {
   showCountrySheet: false,
   countrySearch: "",
   totalSpent: 0,
-  lastRefreshedAt: null,
-  dataUpdatedAt: null,
-  cycleEndDate: null,
+  lastRefreshedAt: localStorage.getItem("dostt_lastRefreshedAt") || null,
+  dataUpdatedAt:   localStorage.getItem("dostt_dataUpdatedAt")   || null,
+  cycleEndDate:    localStorage.getItem("dostt_cycleEndDate")    || null,
   claimed: new Set(),
   claimingTiers: new Set(),  // tiers with in-flight API calls
   dataLoading: true,         // true until first loadRewardsData completes
@@ -519,10 +519,14 @@ function rewardsPage() {
             <div class="flex flex-col items-end gap-0.5">
               <p class="text-[10px] text-white/45">${(() => {
                 const ts = state.lastRefreshedAt || state.dataUpdatedAt;
-                if (!ts) return "";
+                if (!ts) return "Refreshes every 2 hrs";
                 return "Updated: " + new Date(ts).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST";
               })()}</p>
-              ${state.cycleEndDate ? `<p class="text-[10px] text-dosttGold/80">Resets in ${Math.max(0, Math.ceil((new Date(state.cycleEndDate) - Date.now()) / (1000 * 60 * 60 * 24)))} days</p>` : ""}
+              <p class="text-[10px] text-dosttGold/80">${(() => {
+                if (!state.cycleEndDate) return "";
+                const days = Math.max(0, Math.ceil((new Date(state.cycleEndDate) - Date.now()) / (1000 * 60 * 60 * 24)));
+                return `Resets in ${days} day${days === 1 ? "" : "s"}`;
+              })()}</p>
             </div>
           </div>
           <p class="mt-1 text-xl font-semibold">${displayed} / ${target} Dostt Points earned</p>
@@ -877,6 +881,10 @@ async function loadRewardsData() {
     state.cycleEndDate    = data.cycle?.endDate   || null;
     state.claimed         = new Set(data.claimedTiers || []);
     state.isTester        = data.isTester         || state.isTester;
+    // Persist so values survive page refresh
+    if (state.lastRefreshedAt) localStorage.setItem("dostt_lastRefreshedAt", state.lastRefreshedAt);
+    if (state.dataUpdatedAt)   localStorage.setItem("dostt_dataUpdatedAt",   state.dataUpdatedAt);
+    if (state.cycleEndDate)    localStorage.setItem("dostt_cycleEndDate",     state.cycleEndDate);
   } catch (err) {
     console.error("[rewards] Failed to load rewards data:", err.message);
     state.toast = "Could not load rewards. Pull down to refresh.";
@@ -937,6 +945,12 @@ window.addEventListener("click", async (event) => {
 
   if (event.target.closest("#logout-btn")) {
     localStorage.removeItem("dostt_session");
+    localStorage.removeItem("dostt_lastRefreshedAt");
+    localStorage.removeItem("dostt_dataUpdatedAt");
+    localStorage.removeItem("dostt_cycleEndDate");
+    state.lastRefreshedAt = null;
+    state.dataUpdatedAt   = null;
+    state.cycleEndDate    = null;
     state.view = "login";
     state.phone = "";
     state.country = COUNTRIES[0];
