@@ -52,8 +52,10 @@ router.post("/login", async (req, res) => {
     if (!isTester) {
       // Verify phone is a registered Dostt user via Redash
       if (!process.env.REDASH_VERIFY_PHONE_QUERY_ID) {
-        // No query configured — allow all numbers (dev mode)
-        logger.warn("REDASH_VERIFY_PHONE_QUERY_ID not set, skipping verification", { phone });
+        // Env var missing — block the login rather than silently letting everyone in
+        logger.error("REDASH_VERIFY_PHONE_QUERY_ID not configured — login blocked", { phone });
+        await recordLogin(phone, countryCode, null, "failed", "REDASH_VERIFY_PHONE_QUERY_ID not set");
+        return res.status(503).json({ error: "Verification service unavailable. Please try again." });
       } else {
         try {
           dosttUser = await lookupDosttUser(phone);
