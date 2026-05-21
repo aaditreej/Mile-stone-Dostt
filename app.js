@@ -792,6 +792,26 @@ function sweepProgressBar() {
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
+function clearSession() {
+  localStorage.removeItem("dostt_session");
+  localStorage.removeItem("dostt_lastRefreshedAt");
+  localStorage.removeItem("dostt_dataUpdatedAt");
+  localStorage.removeItem("dostt_cycleEndDate");
+  state.view            = "login";
+  state.phone           = "";
+  state.country         = COUNTRIES[0];
+  state.isTester        = false;
+  state.testMode        = null;
+  state.claimType       = "real";
+  state.claimed         = new Set();
+  state.claimingTiers   = new Set();
+  state.totalSpent      = 0;
+  state.lastRefreshedAt = null;
+  state.dataUpdatedAt   = null;
+  state.cycleEndDate    = null;
+  state.dataLoading     = true;
+}
+
 function showToast(text) {
   state.toast = text;
   render();
@@ -950,24 +970,7 @@ window.addEventListener("click", async (event) => {
   }
 
   if (event.target.closest("#logout-btn")) {
-    localStorage.removeItem("dostt_session");
-    localStorage.removeItem("dostt_lastRefreshedAt");
-    localStorage.removeItem("dostt_dataUpdatedAt");
-    localStorage.removeItem("dostt_cycleEndDate");
-    state.lastRefreshedAt = null;
-    state.dataUpdatedAt   = null;
-    state.cycleEndDate    = null;
-    state.view = "login";
-    state.phone = "";
-    state.country = COUNTRIES[0];
-    state.claimed = new Set();
-    state.claimingTiers = new Set();
-    state.dataLoading = true;
-    state.totalSpent = 0;
-    state.lastRefreshedAt = null;
-    state.isTester = false;
-    state.testMode = null;
-    state.claimType = "real";
+    clearSession();
     state.showTestModal = false;
     rewardsRendered = false;
     render();
@@ -990,18 +993,40 @@ window.addEventListener("click", async (event) => {
       state.phone   = s.phone   || "";
       state.country = s.country || COUNTRIES[0];
       state.isTester = TEST_PHONES.includes(state.phone);
+
       if (state.isTester) {
         state.showTestModal = true;
         render();
       } else {
+        // Show rewards page immediately for good UX
         state.view = "rewards";
-        render();        // Show rewards page immediately — don't wait for Redash
+        render();
         initLottie();
-        await loadRewardsData(); // Load data in background
+
+        // Re-validate session AND load data in parallel.
+        // Auth uses Redash 1h cache so the extra call is fast on repeat opens.
+        const [authResult] = await Promise.allSettled([
+          api("/auth/login", {
+            method: "POST",
+            body: JSON.stringify({ phone: state.phone, countryCode: state.country.code }),
+          }),
+          loadRewardsData(),
+        ]);
+
+        // 403 = phone is not registered on Dostt → kill the stale session
+        if (authResult.status === "rejected" && authResult.reason?.status === 403) {
+          clearSession();
+          rewardsRendered = false;
+          showToast("Please use your Dostt registered number.");
+          render();
+          setTimeout(() => { state.toast = ""; render(); }, 3500);
+          return;
+        }
+        // 503 / network errors → let them stay on the page; loadRewardsData already showed an error
       }
     }
   } catch (e) { /* ignore */ }
-  render();            // Re-render once data is ready
+  render();
   initLottie();
 })();
 
