@@ -18,7 +18,7 @@ function client() {
   return axios.create({
     baseURL: process.env.REDASH_BASE_URL,
     headers: { Authorization: `Key ${process.env.REDASH_API_KEY}` },
-    timeout: 15_000,
+    timeout: 30_000,
   });
 }
 
