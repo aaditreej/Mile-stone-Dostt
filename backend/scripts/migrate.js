@@ -189,9 +189,26 @@ const tables = [
     `,
   },
 
+  // ── Views ────────────────────────────────────────────────────────────────────
+  // IMPORTANT: drop views BEFORE altering column types they reference.
+  // v_user_performance references last_refreshed_at_ist — if views are dropped
+  // after the ALTER, Postgres rejects "cannot alter type of column used by a view".
+
+  {
+    name: "drop old views (safe)",
+    sql: `
+      DROP VIEW IF EXISTS v_eligible_not_claimed CASCADE;
+      DROP VIEW IF EXISTS v_user_performance CASCADE;
+      DROP VIEW IF EXISTS v_claim_logs CASCADE;
+      DROP VIEW IF EXISTS v_login_logs CASCADE;
+      DROP VIEW IF EXISTS v_waiting_for_cooldown CASCADE;
+      DROP VIEW IF EXISTS v_tier_status CASCADE;
+    `,
+  },
+
   // ── Fix last_refreshed_at_ist column type: TIMESTAMPTZ → TEXT ────────────────
-  // Redash returns this as "DD/MM/YYYY HH:MM" which Postgres can't parse as TIMESTAMPTZ.
-  // Wrapped in DO block so it's a true no-op if the column is already TEXT (safe to re-run).
+  // Must run AFTER drop old views — v_user_performance references this column and
+  // Postgres rejects ALTER COLUMN TYPE when a view depends on it.
   {
     name: "user_points last_refreshed_at_ist → TEXT (safe)",
     sql: `
@@ -209,18 +226,6 @@ const tables = [
     `,
   },
 
-  // ── Views ────────────────────────────────────────────────────────────────────
-
-  {
-    name: "drop old views (safe)",
-    sql: `
-      DROP VIEW IF EXISTS v_eligible_not_claimed CASCADE;
-      DROP VIEW IF EXISTS v_user_performance CASCADE;
-      DROP VIEW IF EXISTS v_claim_logs CASCADE;
-      DROP VIEW IF EXISTS v_login_logs CASCADE;
-      DROP VIEW IF EXISTS v_waiting_for_cooldown CASCADE;
-    `,
-  },
   {
     name: "view: v_login_logs",
     sql: `

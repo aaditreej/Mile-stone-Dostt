@@ -523,8 +523,10 @@ function rewardsPage() {
                 return "Updated: " + new Date(ts).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST";
               })()}</p>
               <p class="text-[10px] text-dosttGold/80">${(() => {
-                if (!state.cycleEndDate) return "";
-                const days = Math.max(0, Math.ceil((new Date(state.cycleEndDate) - Date.now()) / (1000 * 60 * 60 * 24)));
+                if (!state.cycleEndDate) return state.dataLoading ? "" : "Resets in 30 days";
+                const ms = new Date(state.cycleEndDate) - Date.now();
+                if (ms <= 0) return "Resets today";
+                const days = Math.floor(ms / (1000 * 60 * 60 * 24));
                 return `Resets in ${days} day${days === 1 ? "" : "s"}`;
               })()}</p>
             </div>
@@ -882,9 +884,13 @@ async function loadRewardsData() {
     state.claimed         = new Set(data.claimedTiers || []);
     state.isTester        = data.isTester         || state.isTester;
     // Persist so values survive page refresh
+    // Always overwrite localStorage so stale values from previous cycles don't persist
     if (state.lastRefreshedAt) localStorage.setItem("dostt_lastRefreshedAt", state.lastRefreshedAt);
+    else localStorage.removeItem("dostt_lastRefreshedAt");
     if (state.dataUpdatedAt)   localStorage.setItem("dostt_dataUpdatedAt",   state.dataUpdatedAt);
+    else localStorage.removeItem("dostt_dataUpdatedAt");
     if (state.cycleEndDate)    localStorage.setItem("dostt_cycleEndDate",     state.cycleEndDate);
+    else localStorage.removeItem("dostt_cycleEndDate");
   } catch (err) {
     console.error("[rewards] Failed to load rewards data:", err.message);
     state.toast = "Could not load rewards. Pull down to refresh.";
