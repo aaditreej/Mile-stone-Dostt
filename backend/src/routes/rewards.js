@@ -120,21 +120,18 @@ async function getOrRefreshPoints(phone, countryCode) {
 
   let rows;
   try {
-    // 17564 returns all eligible users — always fetch fresh from Redash (backend 2h cache handles throttling)
-    // max_age: 7200 = use Redash cache if < 2h old (matches Redash's auto-refresh schedule)
-    // Redash refreshes 17564 every 2h automatically — this always hits the warm cache instantly
-    rows = await runQuery(queryId, {}, 7200);
+    // Pass dostt_user_id as a parameter so Redash runs a single-user query
+    // instead of fetching the entire 1.5-lakh-row result set.
+    // max_age: 7200 = reuse Redash cache if < 2h old — each user's result is
+    // cached independently, so this is both fast AND cheap on BigQuery.
+    rows = await runQuery(queryId, { user_id: dosttUserId }, 7200);
   } catch (err) {
     logger.warn("Redash points fetch failed, using cached data", { phone, err: err.message });
     return cached;
   }
 
-  if (!rows || !rows.length) return cached;
-
-  // Pick this user's row from the full result set
-  const r = rows.find(row => String(row.user_id) === String(dosttUserId));
-  if (!r) {
-    logger.info("user not in 17564 result set (LTV out of range or no spend)", { phone, dosttUserId });
+  if (!rows || !rows.length) {
+    logger.info("user not in points query result (LTV out of range or no spend)", { phone, dosttUserId });
     // Audit the exclusion so ops can investigate if a user reports missing points
     const excludeCycleStr = userRecord?.cycle_start_date
       ? new Date(userRecord.cycle_start_date).toISOString().split("T")[0]
@@ -147,10 +144,13 @@ async function getOrRefreshPoints(phone, countryCode) {
       baseline_points:      0,
       adjusted_total_spent: 0,
       cycle_start_date:     excludeCycleStr,
-      note:                 `dostt_user_id ${dosttUserId} not found in 17564 (LTV out of range or no spend)`,
+      note:                 `dostt_user_id ${dosttUserId} not found in points query (LTV out of range or no spend)`,
     }).catch(e => logger.warn("points_audit ltv_excluded insert failed", { phone, err: e.message }));
     return cached;
   }
+
+  // Single-user query returns exactly one row
+  const r = rows[0];
   const rawTotalSpent = Number(r.total_spent) || 0;
 
   // Get user's cycle info (resets cycle if expired, passing raw spend as new baseline)

@@ -25,7 +25,11 @@ async function lookupDosttUser(phone) {
       const rowPhone = String(r.mobile_no || "").replace(/^(\+?91)/, "");
       return rowPhone === normalised;
     });
-    return match || null;
+    // Also require user_id to be present — a row with null user_id means
+    // the Redash join failed for this phone. Without user_id we can't fetch
+    // points or credit coins, so treat it the same as "not found".
+    if (!match || !match.user_id) return null;
+    return match;
   } catch (err) {
     throw Object.assign(new Error("Redash lookup failed"), { isRedashError: true, cause: err });
   }
