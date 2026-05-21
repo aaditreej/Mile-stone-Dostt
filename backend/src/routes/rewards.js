@@ -175,17 +175,28 @@ async function getOrRefreshPoints(phone, countryCode) {
     : (user?.cycle_baseline_points != null ? Number(user.cycle_baseline_points) : rawTotalSpent);
   const adjustedTotalSpent = Math.max(0, rawTotalSpent - finalBaseline);
 
+  // Upsert numeric/text fields first. last_refreshed_at_ist is handled
+  // separately with a raw cast so the DD/MM/YYYY string from Redash never
+  // hits the TIMESTAMPTZ column type check on the primary upsert path.
   await db.upsert("user_points", {
-    user_id:               r.user_id               || null,
+    user_id:        r.user_id              || null,
     phone,
-    wallet_balance:        Number(r.wallet_balance)  || 0,
-    spent_on_audio:        Number(r.spent_on_audio)  || 0,
-    spent_on_video:        Number(r.spent_on_video)  || 0,
-    total_spent:           adjustedTotalSpent,
-    last_refreshed_at_ist: r.last_refreshed_at_ist   || null,
-    ltv:                   Number(r.ltv)              || 0,
-    updated_at:            new Date(),
+    wallet_balance: Number(r.wallet_balance) || 0,
+    spent_on_audio: Number(r.spent_on_audio) || 0,
+    spent_on_video: Number(r.spent_on_video) || 0,
+    total_spent:    adjustedTotalSpent,
+    ltv:            Number(r.ltv)            || 0,
+    updated_at:     new Date(),
   }, ["phone"]);
+
+  // Store the raw Redash timestamp string via explicit TEXT cast so it works
+  // whether the column is already TEXT or still TIMESTAMPTZ (migration pending).
+  if (r.last_refreshed_at_ist) {
+    await db.query(
+      `UPDATE user_points SET last_refreshed_at_ist = $1::TEXT WHERE phone = $2`,
+      [String(r.last_refreshed_at_ist), phone]
+    ).catch(() => {}); // silently ignore if column cast still fails
+  }
 
   // Audit log — every points fetch is recorded so complaints can be investigated
   const isFirstFetch = !cached;
