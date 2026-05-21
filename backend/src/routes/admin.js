@@ -43,16 +43,16 @@ router.get("/reports/login-logs", async (req, res) => {
   }
 });
 
-// GET /admin/reports/claim-logs?phone=&status=&claim_type=&claim_mode=&limit=100
+// GET /admin/reports/claim-logs?phone=&status=&tier_id=&limit=100
+// Note: claim_type and claim_mode were removed from v_claim_logs — do not filter by them
 router.get("/reports/claim-logs", async (req, res) => {
   try {
-    const { phone, status, claim_type, claim_mode, limit = "100" } = req.query;
+    const { phone, status, tier_id, limit = "100" } = req.query;
     const conditions = [];
     const values = [];
-    if (phone)      { conditions.push(`phone = $${values.length + 1}`);      values.push(phone); }
-    if (status)     { conditions.push(`status = $${values.length + 1}`);     values.push(status); }
-    if (claim_type) { conditions.push(`claim_type = $${values.length + 1}`); values.push(claim_type); }
-    if (claim_mode) { conditions.push(`claim_mode = $${values.length + 1}`); values.push(claim_mode); }
+    if (phone)   { conditions.push(`phone = $${values.length + 1}`);   values.push(phone); }
+    if (status)  { conditions.push(`status = $${values.length + 1}`);  values.push(status); }
+    if (tier_id) { conditions.push(`tier_id = $${values.length + 1}`); values.push(Number(tier_id)); }
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const rows = await db.query(
       `SELECT * FROM v_claim_logs ${where} LIMIT $${values.length + 1}`,

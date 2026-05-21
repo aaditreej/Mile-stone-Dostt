@@ -29,7 +29,27 @@ async function creditCoins(dosttUserId, tierId, coins) {
     timeout: 20_000,
   });
 
-  return response.data;
+  const data = response.data;
+
+  // Validate that the wallet API actually succeeded.
+  // The API may return HTTP 200 with an error body — treat that as a failure
+  // so the claim is rolled back and the user can retry rather than silently
+  // receiving no coins.
+  if (data && typeof data === "object") {
+    const hasErrorFlag =
+      data.success === false ||
+      data.status  === "error" ||
+      data.status  === "failed" ||
+      data.error   === true     ||
+      (typeof data.error === "string" && data.error.length > 0);
+
+    if (hasErrorFlag) {
+      const reason = data.message || data.error || data.reason || JSON.stringify(data);
+      throw new Error(`Wallet API returned failure: ${reason}`);
+    }
+  }
+
+  return data;
 }
 
 module.exports = { creditCoins };
