@@ -101,7 +101,7 @@ const tables = [
       DO $$ BEGIN
         ALTER TABLE claimed_rewards ADD CONSTRAINT claimed_rewards_cycle_unique
           UNIQUE (phone, country_code, tier_id, cycle_start_date);
-      EXCEPTION WHEN duplicate_table THEN NULL;
+      EXCEPTION WHEN duplicate_object THEN NULL;
       END $$;
     `,
   },
