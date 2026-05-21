@@ -12,8 +12,11 @@ async function lookupDosttUser(phone) {
   const queryId = Number(process.env.REDASH_VERIFY_PHONE_QUERY_ID);
   if (!queryId) return null;
   try {
-    // Query uses {{ mobile_numbers }} parameter
-    const rows = await runQuery(queryId, { mobile_numbers: phone }, 0);
+    // Query uses {{ mobile_numbers }} parameter.
+    // max_age: 3600 — use Redash cache if < 1h old. Avoids a live BigQuery
+    // run on every login (which caused 10-15s delays). New Dostt signups may
+    // wait up to 1h before they can log in here — acceptable tradeoff.
+    const rows = await runQuery(queryId, { mobile_numbers: phone }, 3600);
     if (!rows.length) return null;
     // Defensively confirm the returned row actually matches this phone.
     // Redash strips the +91 country prefix, so normalise before comparing.
