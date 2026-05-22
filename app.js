@@ -1004,12 +1004,9 @@ window.addEventListener("click", async (event) => {
         initLottie();
 
         // Re-validate session AND load data in parallel.
-        // Auth uses Redash 1h cache so the extra call is fast on repeat opens.
+        // Uses /auth/verify (not /auth/login) so re-opens don't spam login_logs.
         const [authResult] = await Promise.allSettled([
-          api("/auth/login", {
-            method: "POST",
-            body: JSON.stringify({ phone: state.phone, countryCode: state.country.code }),
-          }),
+          api(`/auth/verify?phone=${encodeURIComponent(state.phone)}&countryCode=${encodeURIComponent(state.country.code)}`),
           loadRewardsData(),
         ]);
 

@@ -341,6 +341,22 @@ const tables = [
       ORDER BY up.total_spent DESC, t.tier_id;
     `,
   },
+
+  // ── Housekeeping ─────────────────────────────────────────────────────────────
+  {
+    name: "prune login_logs older than 90 days",
+    sql: `
+      DELETE FROM login_logs
+      WHERE created_at < NOW() - INTERVAL '90 days';
+    `,
+  },
+  {
+    name: "prune points_audit older than 90 days",
+    sql: `
+      DELETE FROM points_audit
+      WHERE created_at < NOW() - INTERVAL '90 days';
+    `,
+  },
 ];
 
 async function migrate() {

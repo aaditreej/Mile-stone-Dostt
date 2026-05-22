@@ -120,4 +120,36 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// GET /auth/verify?phone=&countryCode=
+// Lightweight session re-validation — same Redash check as /login but
+// writes NO login_log entry and does NOT modify the users table.
+// Used by the frontend on session restore so re-opens don't spam login_logs.
+router.get("/verify", async (req, res) => {
+  const { phone, countryCode = "+91" } = req.query;
+
+  if (!phone || !/^\d{7,15}$/.test(phone)) {
+    return res.status(400).json({ error: "Invalid phone number" });
+  }
+
+  if (TEST_PHONES.includes(phone)) {
+    return res.json({ valid: true });
+  }
+
+  if (!process.env.REDASH_VERIFY_PHONE_QUERY_ID) {
+    return res.status(503).json({ error: "Verification service unavailable." });
+  }
+
+  try {
+    const dosttUser = await lookupDosttUser(phone);
+    if (!dosttUser) {
+      return res.status(403).json({ error: "Please use your Dostt registered number" });
+    }
+    res.json({ valid: true });
+  } catch (err) {
+    // Redash down — don't kick the user out, just let them through
+    logger.warn("verify Redash error — allowing session", { phone, err: err.message });
+    res.json({ valid: true, degraded: true });
+  }
+});
+
 module.exports = router;
