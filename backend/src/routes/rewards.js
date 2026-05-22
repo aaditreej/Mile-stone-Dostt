@@ -77,12 +77,14 @@ async function getUserCycleStartDate(phone, countryCode, rawTotalSpent = null) {
 }
 
 // Get Dostt user_id from Redash. Tries cache first, retries fresh.
-async function getDosttUserId(phone) {
+// realMode=true: skip cache on first attempt so testers always get a live lookup.
+async function getDosttUserId(phone, realMode = false) {
   const queryId = Number(process.env.REDASH_VERIFY_PHONE_QUERY_ID);
   if (!queryId) return null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const rows = await runQuery(queryId, { mobile_numbers: phone }, attempt === 1 ? 3600 : 0);
+      const maxAge = (realMode || attempt > 1) ? 0 : 3600;
+      const rows = await runQuery(queryId, { mobile_numbers: phone }, maxAge);
       if (rows.length && rows[0].user_id) return rows[0].user_id;
     } catch (err) {
       logger.warn(`getDosttUserId attempt ${attempt} failed`, { phone, err: err.message });
@@ -109,7 +111,7 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
   let dosttUserId = userRecord?.dostt_user_id;
   if (!dosttUserId) {
     logger.info("dostt_user_id missing in DB, falling back to 17538 lookup", { phone });
-    dosttUserId = await getDosttUserId(phone);
+    dosttUserId = await getDosttUserId(phone, realMode);
     if (dosttUserId) {
       // Save it so future fetches skip the Redash call
       await db.update("users", { phone, country_code: countryCode }, { dostt_user_id: dosttUserId });
@@ -122,10 +124,9 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
   let rows;
   try {
     // Query 17564: SELECT … FROM sourav_magre_free_rewards_user_ltv WHERE user_id = {{ user_id }}
-    // Pre-materialized BigQuery table refreshed every 2h — this is a flat single-row lookup,
-    // completes in < 2s even on first hit. max_age: 7200 matches the table refresh cadence so
-    // Redash serves cached results within the same 2h window and only hits BigQuery once per cycle.
-    rows = await runQuery(queryId, { user_id: dosttUserId }, 7200);
+    // max_age: 7200 for normal users — matches the 2h BigQuery table refresh cadence.
+    // max_age: 0 for real mode — forces a live BigQuery hit so testers always see current data.
+    rows = await runQuery(queryId, { user_id: dosttUserId }, realMode ? 0 : 7200);
   } catch (err) {
     logger.warn("Redash points fetch failed, using cached data", { phone, err: err.message });
     return cached;
