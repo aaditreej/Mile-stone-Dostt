@@ -120,10 +120,10 @@ async function getOrRefreshPoints(phone, countryCode) {
 
   let rows;
   try {
-    // Pass dostt_user_id as a parameter so Redash runs a single-user query
-    // instead of fetching the entire 1.5-lakh-row result set.
-    // max_age: 7200 = reuse Redash cache if < 2h old — each user's result is
-    // cached independently, so this is both fast AND cheap on BigQuery.
+    // Query 17546: SELECT … FROM sourav_magre_free_rewards_user_ltv WHERE user_id = {{ user_id }}
+    // Pre-materialized BigQuery table refreshed every 2h — this is a flat single-row lookup,
+    // completes in < 2s even on first hit. max_age: 7200 matches the table refresh cadence so
+    // Redash serves cached results within the same 2h window and only hits BigQuery once per cycle.
     rows = await runQuery(queryId, { user_id: dosttUserId }, 7200);
   } catch (err) {
     logger.warn("Redash points fetch failed, using cached data", { phone, err: err.message });
@@ -131,25 +131,25 @@ async function getOrRefreshPoints(phone, countryCode) {
   }
 
   if (!rows || !rows.length) {
-    logger.info("user not in points query result (LTV out of range or no spend)", { phone, dosttUserId });
-    // Audit the exclusion so ops can investigate if a user reports missing points
+    // User has no spend data yet (new user with zero history, or no bookings since go-live)
+    logger.info("user not found in points table — no spend data", { phone, dosttUserId });
     const excludeCycleStr = userRecord?.cycle_start_date
       ? new Date(userRecord.cycle_start_date).toISOString().split("T")[0]
       : new Date().toISOString().split("T")[0];
     db.insert("points_audit", {
       phone,
       country_code:         countryCode,
-      event:                "ltv_excluded",
+      event:                "no_spend_data",
       raw_total_spent:      0,
       baseline_points:      0,
       adjusted_total_spent: 0,
       cycle_start_date:     excludeCycleStr,
-      note:                 `dostt_user_id ${dosttUserId} not found in points query (LTV out of range or no spend)`,
-    }).catch(e => logger.warn("points_audit ltv_excluded insert failed", { phone, err: e.message }));
+      note:                 `dostt_user_id ${dosttUserId} not found in points table (no spend since go-live)`,
+    }).catch(e => logger.warn("points_audit no_spend_data insert failed", { phone, err: e.message }));
     return cached;
   }
 
-  // Single-user query returns exactly one row
+  // Single-row result for this user
   const r = rows[0];
   const rawTotalSpent = Number(r.total_spent) || 0;
 

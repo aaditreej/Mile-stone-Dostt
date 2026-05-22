@@ -70,7 +70,7 @@ Dostt App (WebView)
       │
       ├──► Redash (BigQuery)
       │      Query 17538 — verify phone, get user_id
-      │      Query 17564 — all LTV 500-1500 users + spend data
+      │      Query 17546 — single-user spend data (param: user_id)
       │
       └──► Dostt Wallet API
              Credits coins to user wallet on claim
@@ -88,7 +88,7 @@ CYCLE_DAYS=30
 REDASH_BASE_URL=https://app.redash.io/yourslug
 REDASH_API_KEY=...
 REDASH_VERIFY_PHONE_QUERY_ID=17538   # phone → user_id
-REDASH_USER_POINTS_QUERY_ID=17564    # all eligible users
+REDASH_USER_POINTS_QUERY_ID=17546    # single-user spend data (param: user_id)
 
 DOSTT_WALLET_API_URL=https://api.dostt.in/payments/free-coins/upload/
 DOSTT_WALLET_AUTH_KEY=...
@@ -267,9 +267,8 @@ const TEST_PHONES = ["9500365660", "9988818731"];
 - Cache < 2h? → return cached
 - Read dostt_user_id from users table
   - If null: call Redash 17538, save to DB for next time
-- Call Redash 17564 (no params) → all LTV 500-1500 users
-- Find row where user_id matches dostt_user_id
-- If not found: user's LTV outside range → return cached (0 points)
+- Call Redash 17546 with { user_id: dosttUserId } → 1 row for this user
+- If 0 rows: user has no spend data yet → return cached (0 points)
 - Apply baseline: adjustedSpent = rawTotalSpent - cycle_baseline_points
 - If first fetch (no cache + baseline=0): set baseline = rawTotalSpent
 - Upsert user_points table
@@ -347,17 +346,21 @@ Test phones always get `totalSpent = 24350`.
 Uses UNNEST + REGEXP_REPLACE to normalise phone (strips +91 prefix).
 **Cache:** `max_age: 0` at login (always fresh), `max_age: 3600` in getDosttUserId
 
-## Query 17564 — Points Data
-**Parameters:** None (returns ALL LTV 500–1500 users)
-**Called by:** `getOrRefreshPoints()` every 2 hours per user
+## Query 17546 — Points Data (per-user)
+**Parameter:** `{{ user_id }}` (Dostt user_id)
+**Called by:** `getOrRefreshPoints()` on every /rewards/me
 **Returns:** `user_id, mobile_no, wallet_balance, spent_on_audio, spent_on_video, total_spent, last_refreshed_at_ist, ltv`
-**Cache:** `max_age: 0` (always fresh, backend 2h cache handles throttling)
+**Cache:** `max_age: 7200` — matches the 2h BigQuery table refresh cadence
+
+Source table: `dostt-c1d96.ref_tables.sourav_magre_free_rewards_user_ltv`
+Refreshed every 2h via BigQuery scheduled query.
 
 Column meanings:
-- `total_spent` = cumulative spend since go-live (2026-04-20 18:30 IST)
-- `ltv` = all-time spend (eligibility gate only, not shown to user)
+- `total_spent` = cumulative spend since go-live (2026-05-22 10:00 IST)
+- `last_refreshed_at_ist` = DD/MM/YYYY HH:MM of user's latest booking update
+- `ltv` = all-time spend (stored for reference, no LTV gate anymore)
 
-Backend finds the right user row: `rows.find(r => String(r.user_id) === String(dosttUserId))`
+Backend reads `rows[0]` directly — single-user query always returns 1 row or 0 rows.
 
 ---
 
@@ -679,10 +682,10 @@ If using Kubero's UI instead of raw kubectl:
 2. **Tier data sync** — defined in two places; keep identical
 3. **Test phone list** — defined in three files; keep identical
 4. **Migration** — run after every schema change; safe to re-run (IF NOT EXISTS throughout)
-5. **17564 has no parameter** — returns all LTV 500-1500 users; backend matches by `dostt_user_id`
-6. **LTV gate** — users with LTV outside 500-1500 get 0 points and all tiers locked (not an error)
+5. **17546 is parameterized** — pass `user_id` and get 1 row back; reads from pre-materialized BigQuery table refreshed every 2h
+6. **No LTV gate** — all Dostt users are in the table; users with zero spend since go-live get 0 points (correct)
 7. **WebKit input** — phone input uses `type="text" inputmode="numeric"` not `type="number"`; `-webkit-text-fill-color` required in CSS for WebView visibility
 8. **Sequential claiming** — enforced on BOTH frontend and backend; tier N requires tier N-1 claimed first. `direct_select` test mode bypasses the backend check.
 9. **Scroll restore** — `id="page-scroll"` on outer div and class `reward-scroll` on tier list are used to save/restore scroll; don't remove these
 10. **claim_notifications / points_audit grow unboundedly** — no TTL or archival. Schedule a periodic cleanup job (e.g. DELETE rows older than 90 days) before table size becomes a problem.
-11. **ltv_excluded audit** — when a user's LTV falls outside 500-1500, a `"ltv_excluded"` event is written to `points_audit`. If a user reports 0 points and all tiers locked, check this table first.
+11. **no_spend_data audit** — when a user has no rows in the points table (zero spend since go-live), a `"no_spend_data"` event is written to `points_audit`. If a user reports 0 points and all tiers locked, check this table first.
