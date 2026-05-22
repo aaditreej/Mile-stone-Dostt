@@ -70,7 +70,7 @@ Dostt App (WebView)
       │
       ├──► Redash (BigQuery)
       │      Query 17538 — verify phone, get user_id
-      │      Query 17546 — single-user spend data (param: user_id)
+      │      Query 17564 — single-user spend data (param: user_id)
       │
       └──► Dostt Wallet API
              Credits coins to user wallet on claim
@@ -88,7 +88,7 @@ CYCLE_DAYS=30
 REDASH_BASE_URL=https://app.redash.io/yourslug
 REDASH_API_KEY=...
 REDASH_VERIFY_PHONE_QUERY_ID=17538   # phone → user_id
-REDASH_USER_POINTS_QUERY_ID=17546    # single-user spend data (param: user_id)
+REDASH_USER_POINTS_QUERY_ID=17564    # single-user spend data (param: user_id)
 
 DOSTT_WALLET_API_URL=https://api.dostt.in/payments/free-coins/upload/
 DOSTT_WALLET_AUTH_KEY=...
@@ -346,7 +346,7 @@ Test phones always get `totalSpent = 24350`.
 Uses UNNEST + REGEXP_REPLACE to normalise phone (strips +91 prefix).
 **Cache:** `max_age: 0` at login (always fresh), `max_age: 3600` in getDosttUserId
 
-## Query 17546 — Points Data (per-user)
+## Query 17564 — Points Data (per-user, parameterized)
 **Parameter:** `{{ user_id }}` (Dostt user_id)
 **Called by:** `getOrRefreshPoints()` on every /rewards/me
 **Returns:** `user_id, mobile_no, wallet_balance, spent_on_audio, spent_on_video, total_spent, last_refreshed_at_ist, ltv`
@@ -358,7 +358,7 @@ Refreshed every 2h via BigQuery scheduled query.
 Column meanings:
 - `total_spent` = cumulative spend since go-live (2026-05-22 10:00 IST)
 - `last_refreshed_at_ist` = DD/MM/YYYY HH:MM of user's latest booking update
-- `ltv` = all-time spend (stored for reference, no LTV gate anymore)
+- `ltv` = all-time spend (stored for reference, no LTV gate)
 
 Backend reads `rows[0]` directly — single-user query always returns 1 row or 0 rows.
 
@@ -682,7 +682,7 @@ If using Kubero's UI instead of raw kubectl:
 2. **Tier data sync** — defined in two places; keep identical
 3. **Test phone list** — defined in three files; keep identical
 4. **Migration** — run after every schema change; safe to re-run (IF NOT EXISTS throughout)
-5. **17546 is parameterized** — pass `user_id` and get 1 row back; reads from pre-materialized BigQuery table refreshed every 2h
+5. **17564 is parameterized** — pass `user_id` and get 1 row back; reads from pre-materialized BigQuery table refreshed every 2h
 6. **No LTV gate** — all Dostt users are in the table; users with zero spend since go-live get 0 points (correct)
 7. **WebKit input** — phone input uses `type="text" inputmode="numeric"` not `type="number"`; `-webkit-text-fill-color` required in CSS for WebView visibility
 8. **Sequential claiming** — enforced on BOTH frontend and backend; tier N requires tier N-1 claimed first. `direct_select` test mode bypasses the backend check.
