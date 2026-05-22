@@ -7,7 +7,7 @@ const logger = require("../utils/logger");
 const router = express.Router();
 
 // ⚠️ Also defined in: app.js (line ~71) and routes/auth.js (line ~8) — keep all three in sync
-const TEST_PHONES     = ["9988818731"];
+const TEST_PHONES     = ["9500365660", "9988818731"];
 const MAX_TIER_POINTS = 24350;
 const CYCLE_DAYS      = Number(process.env.CYCLE_DAYS || 30);
 const CYCLE_MS        = CYCLE_DAYS * 24 * 60 * 60 * 1000;
@@ -120,7 +120,7 @@ async function getOrRefreshPoints(phone, countryCode) {
 
   let rows;
   try {
-    // Query 17546: SELECT … FROM sourav_magre_free_rewards_user_ltv WHERE user_id = {{ user_id }}
+    // Query 17564: SELECT … FROM sourav_magre_free_rewards_user_ltv WHERE user_id = {{ user_id }}
     // Pre-materialized BigQuery table refreshed every 2h — this is a flat single-row lookup,
     // completes in < 2s even on first hit. max_age: 7200 matches the table refresh cadence so
     // Redash serves cached results within the same 2h window and only hits BigQuery once per cycle.
