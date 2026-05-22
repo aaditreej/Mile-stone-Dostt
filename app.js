@@ -535,9 +535,11 @@ function rewardsPage() {
             <p class="text-[11px] uppercase tracking-widest text-white/60">Your Progress</p>
             <div class="flex flex-col items-end gap-0.5">
               <p class="text-[10px] text-white/45">${(() => {
-                const ts = state.lastRefreshedAt || state.dataUpdatedAt;
-                if (!ts) return "Refreshes every 2 hrs";
-                return "Updated: " + new Date(ts).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST";
+                // lastRefreshedAt is already "DD/MM/YYYY HH:MM" from Redash — display as-is.
+                // dataUpdatedAt is an ISO timestamp — parse it with Date.
+                if (state.lastRefreshedAt) return "Updated: " + state.lastRefreshedAt + " IST";
+                if (state.dataUpdatedAt) return "Updated: " + new Date(state.dataUpdatedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST";
+                return "Refreshes every 2 hrs";
               })()}</p>
               <p class="text-[10px] text-dosttGold/80">${(() => {
                 if (!state.cycleEndDate) return state.dataLoading ? "" : "Resets in 30 days";
