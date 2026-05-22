@@ -89,7 +89,7 @@ const state = {
   loading: false,
   // tester state
   isTester: false,
-  testMode: null,        // null | "api" | "direct_select" | "bypass"
+  testMode: null,        // null | "api" | "direct_select" | "bypass" | "real"
   claimType: "real",     // "real" | "dummy"
   showTestModal: false,
 };
@@ -313,6 +313,10 @@ function testModeModal() {
             Test Offline (Bypass)
             <p class="text-[11px] font-normal opacity-70 mt-0.5">No API · no DB · resets on logout</p>
           </button>
+          <button id="test-real-btn" class="w-full rounded-xl border border-emerald-400/40 bg-emerald-400/10 py-3.5 text-sm font-semibold text-white active:opacity-90 text-left px-4">
+            Real Mode
+            <p class="text-[11px] font-normal opacity-70 mt-0.5">Hits Redash · shows your actual points · real wallet credits</p>
+          </button>
         </div>
       </div>
     </div>
@@ -354,6 +358,18 @@ function wireTestModal() {
     rewardsRendered = false;
     render();
   });
+
+  document.getElementById("test-real-btn")?.addEventListener("click", async () => {
+    state.testMode = "real";
+    state.showTestModal = false;
+    state.view = "rewards";
+    rewardsRendered = false;
+    render();
+    initLottie();
+    await loadRewardsData();
+    render();
+    initLottie();
+  });
 }
 
 // ─── Tester toolbar (shown on rewards page when isTester) ────────────────────
@@ -364,6 +380,7 @@ function testerToolbar() {
     api: "API",
     direct_select: "Direct Select",
     bypass: "Bypass",
+    real: "Real",
   }[state.testMode] || "?";
 
   const isDummy = state.claimType === "dummy";
@@ -896,7 +913,8 @@ async function loadRewardsData() {
     return;
   }
   try {
-    const data = await api(`/rewards/me?phone=${encodeURIComponent(state.phone)}&countryCode=${encodeURIComponent(state.country.code)}`);
+    const realMode = state.testMode === "real";
+    const data = await api(`/rewards/me?phone=${encodeURIComponent(state.phone)}&countryCode=${encodeURIComponent(state.country.code)}${realMode ? "&realMode=true" : ""}`);
     state.totalSpent      = data.totalSpent      || 0;
     state.lastRefreshedAt = data.lastRefreshedAt  || null;
     state.dataUpdatedAt   = data.dataUpdatedAt    || null;
@@ -949,6 +967,7 @@ window.addEventListener("click", async (event) => {
           countryCode: state.country.code,
           claimMode: state.testMode === "direct_select" ? "direct_select" : "api",
           claimType: state.claimType || "real",
+          realMode:  state.testMode === "real",
         }),
       });
 

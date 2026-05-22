@@ -7,7 +7,7 @@ const logger = require("../utils/logger");
 const router = express.Router();
 
 // ⚠️ Also defined in: app.js (line ~71) and routes/auth.js (line ~8) — keep all three in sync
-const TEST_PHONES     = ["9500365660", "9988818731"];
+const TEST_PHONES     = ["9988818731"];
 const MAX_TIER_POINTS = 24350;
 const CYCLE_DAYS      = Number(process.env.CYCLE_DAYS || 30);
 const CYCLE_MS        = CYCLE_DAYS * 24 * 60 * 60 * 1000;
@@ -92,12 +92,13 @@ async function getDosttUserId(phone) {
 }
 
 // Fetch points from Redash (or cache). Applies per-user cycle baseline subtraction.
-async function getOrRefreshPoints(phone, countryCode) {
+// realMode=true: even for test phones, run the full Redash flow and return real data.
+async function getOrRefreshPoints(phone, countryCode, realMode = false) {
   const cached = await db.findOne("user_points", { phone });
 
-  // Test phones: totalSpent is always overridden to MAX_TIER_POINTS in /me,
+  // Test phones in non-real mode: totalSpent is overridden to MAX_TIER_POINTS in /me,
   // so skip the Redash call entirely and return cached (or null) immediately.
-  if (TEST_PHONES.includes(phone)) return cached;
+  if (TEST_PHONES.includes(phone) && !realMode) return cached;
 
   const queryId = Number(process.env.REDASH_USER_POINTS_QUERY_ID);
   if (!queryId) return cached;
@@ -221,11 +222,14 @@ router.get("/me", async (req, res) => {
     const { phone, countryCode = "+91" } = req.query;
     if (!phone) return res.status(400).json({ error: "phone is required" });
 
-    const isTestPhone = TEST_PHONES.includes(phone);
+    // realMode=true lets the test phone bypass the fake MAX_TIER_POINTS override
+    // and run the full Redash flow — so testers can verify their real spend.
+    const realMode    = req.query.realMode === "true";
+    const isTestPhone = TEST_PHONES.includes(phone) && !realMode;
 
     // Refresh points first — this may reset the cycle, so we must read
     // cycle_start_date AFTER it completes to avoid stale cycleStartDateStr
-    const points = await getOrRefreshPoints(phone, countryCode);
+    const points = await getOrRefreshPoints(phone, countryCode, realMode);
 
     // Get user's personal cycle dates (post-refresh so cycle reset is reflected)
     const user = await db.findOne("users", { phone, country_code: countryCode });
@@ -248,7 +252,7 @@ router.get("/me", async (req, res) => {
       lastRefreshedAt: points ? points.last_refreshed_at_ist : null,
       dataUpdatedAt:   points ? points.updated_at : null,
       claimedTiers:    claimedRows.map(r => r.tier_id),
-      isTester:        isTestPhone,
+      isTester:        TEST_PHONES.includes(phone), // always true for test phone, even in real mode
       cycle: {
         startDate: cycleStart.toISOString(),
         endDate:   cycleEnd.toISOString(),
@@ -272,14 +276,16 @@ router.post("/claim", async (req, res) => {
     const tier = TIER_DATA.find(t => t.id === tierId);
     if (!tier) return res.status(400).json({ error: "Invalid tierId" });
 
+    // realMode: test phone runs full Redash flow and uses real points for gating
+    const realMode       = req.body.realMode === true;
     const isTestPhone    = TEST_PHONES.includes(phone);
-    const isDirectSelect = claimMode === "direct_select" && isTestPhone;
+    const isDirectSelect = claimMode === "direct_select" && isTestPhone && !realMode;
     const isDummy        = claimType === "dummy" && isTestPhone;
 
     // Refresh points FIRST — this may reset the cycle if 30 days have passed,
     // so cycle_start_date must be read AFTER this call to avoid stale baseline.
-    const points     = await getOrRefreshPoints(phone, countryCode);
-    const totalSpent = isTestPhone ? MAX_TIER_POINTS : (points ? Number(points.total_spent) : 0);
+    const points     = await getOrRefreshPoints(phone, countryCode, realMode);
+    const totalSpent = (isTestPhone && !realMode) ? MAX_TIER_POINTS : (points ? Number(points.total_spent) : 0);
 
     // Get user's current cycle start date (post-refresh so any cycle reset is reflected)
     const cycleStartDateStr = await getUserCycleStartDate(phone, countryCode);

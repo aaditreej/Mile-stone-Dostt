@@ -6,7 +6,7 @@ const logger  = require("../utils/logger");
 const router = express.Router();
 
 // ⚠️ Also defined in: app.js (line ~71) and routes/rewards.js (line ~10) — keep all three in sync
-const TEST_PHONES = ["9500365660", "9988818731"];
+const TEST_PHONES = ["9988818731"];
 
 async function lookupDosttUser(phone) {
   const queryId = Number(process.env.REDASH_VERIFY_PHONE_QUERY_ID);
