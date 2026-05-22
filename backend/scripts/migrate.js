@@ -99,9 +99,14 @@ const tables = [
       ALTER TABLE claimed_rewards ADD COLUMN IF NOT EXISTS cycle_start_date DATE;
       CREATE INDEX IF NOT EXISTS idx_claimed_cycle ON claimed_rewards (cycle_start_date);
       DO $$ BEGIN
-        ALTER TABLE claimed_rewards ADD CONSTRAINT claimed_rewards_cycle_unique
-          UNIQUE (phone, country_code, tier_id, cycle_start_date);
-      EXCEPTION WHEN duplicate_object THEN NULL;
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'claimed_rewards_cycle_unique'
+            AND conrelid = 'claimed_rewards'::regclass
+        ) THEN
+          ALTER TABLE claimed_rewards ADD CONSTRAINT claimed_rewards_cycle_unique
+            UNIQUE (phone, country_code, tier_id, cycle_start_date);
+        END IF;
       END $$;
     `,
   },
