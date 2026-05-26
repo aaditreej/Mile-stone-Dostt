@@ -133,7 +133,22 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
   }
 
   if (!rows || !rows.length) {
-    // User has no spend data yet (new user with zero history, or no bookings since go-live)
+    // User has no spend data yet (new user with zero history, or no bookings since go-live).
+    // IMPORTANT: still write a zero user_points row if none exists. Without this, every future
+    // fetch would see cached=null and treat itself as "first fetch", incorrectly setting the
+    // baseline to the user's first actual spend (so they'd see 0 instead of their real points).
+    if (!cached) {
+      await db.upsert("user_points", {
+        user_id:        dosttUserId,
+        phone,
+        wallet_balance: 0,
+        spent_on_audio: 0,
+        spent_on_video: 0,
+        total_spent:    0,
+        ltv:            0,
+        updated_at:     new Date(),
+      }, ["phone"]).catch(e => logger.warn("user_points zero-row upsert failed", { phone, err: e.message }));
+    }
     logger.info("user not found in points table — no spend data", { phone, dosttUserId });
     const excludeCycleStr = userRecord?.cycle_start_date
       ? new Date(userRecord.cycle_start_date).toISOString().split("T")[0]
@@ -148,7 +163,7 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
       cycle_start_date:     excludeCycleStr,
       note:                 `dostt_user_id ${dosttUserId} not found in points table (no spend since go-live)`,
     }).catch(e => logger.warn("points_audit no_spend_data insert failed", { phone, err: e.message }));
-    return cached;
+    return await db.findOne("user_points", { phone });
   }
 
   // Single-row result for this user
