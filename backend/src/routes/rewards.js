@@ -124,9 +124,10 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
   let rows;
   try {
     // Query 17564: SELECT … FROM sourav_magre_free_rewards_user_ltv WHERE user_id = {{ user_id }}
-    // max_age: 7200 for normal users — matches the 2h BigQuery table refresh cadence.
-    // max_age: 0 for real mode — forces a live BigQuery hit so testers always see current data.
-    rows = await runQuery(queryId, { user_id: dosttUserId }, realMode ? 0 : 7200);
+    // max_age: 300 — Redash re-runs against BigQuery if its cached result is older than 5 minutes.
+    // This ensures users see fresh data shortly after BigQuery refreshes (every ~2h scheduled,
+    // or sooner if run manually). max_age: 0 in real mode forces an immediate live hit.
+    rows = await runQuery(queryId, { user_id: dosttUserId }, realMode ? 0 : 300);
   } catch (err) {
     logger.warn("Redash points fetch failed, using cached data", { phone, err: err.message });
     return cached;
