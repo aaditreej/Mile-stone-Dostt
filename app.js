@@ -323,9 +323,14 @@ function testModeModal() {
   `;
 }
 
+function setTestMode(mode) {
+  state.testMode = mode;
+  localStorage.setItem("dostt_testMode", mode);
+}
+
 function wireTestModal() {
   document.getElementById("test-api-btn")?.addEventListener("click", async () => {
-    state.testMode = "api";
+    setTestMode("api");
     state.showTestModal = false;
     state.view = "rewards";
     rewardsRendered = false;
@@ -337,7 +342,7 @@ function wireTestModal() {
   });
 
   document.getElementById("test-direct-btn")?.addEventListener("click", async () => {
-    state.testMode = "direct_select";
+    setTestMode("direct_select");
     state.showTestModal = false;
     state.view = "rewards";
     state.totalSpent = 24350;
@@ -350,7 +355,7 @@ function wireTestModal() {
   });
 
   document.getElementById("test-bypass-btn")?.addEventListener("click", () => {
-    state.testMode = "bypass";
+    setTestMode("bypass");
     state.showTestModal = false;
     state.view = "rewards";
     state.totalSpent = 24350;
@@ -360,7 +365,7 @@ function wireTestModal() {
   });
 
   document.getElementById("test-real-btn")?.addEventListener("click", async () => {
-    state.testMode = "real";
+    setTestMode("real");
     state.showTestModal = false;
     state.view = "rewards";
     rewardsRendered = false;
@@ -821,6 +826,7 @@ function clearSession() {
   localStorage.removeItem("dostt_lastRefreshedAt");
   localStorage.removeItem("dostt_dataUpdatedAt");
   localStorage.removeItem("dostt_cycleEndDate");
+  localStorage.removeItem("dostt_testMode");
   state.view            = "login";
   state.phone           = "";
   state.country         = COUNTRIES[0];
@@ -1064,8 +1070,25 @@ function initPullToRefresh() {
       state.isTester = TEST_PHONES.includes(state.phone);
 
       if (state.isTester) {
-        state.showTestModal = true;
-        render();
+        // Restore previous test mode so testers don't have to re-pick on every reload.
+        // If no stored mode, show the modal.
+        const savedMode = localStorage.getItem("dostt_testMode");
+        if (savedMode && ["api", "direct_select", "bypass", "real"].includes(savedMode)) {
+          state.testMode = savedMode;
+          state.showTestModal = false;
+          state.view = "rewards";
+          rewardsRendered = false;
+          render();
+          initLottie();
+          if (savedMode !== "bypass") {
+            await loadRewardsData();
+            render();
+            initLottie();
+          }
+        } else {
+          state.showTestModal = true;
+          render();
+        }
       } else {
         // Show rewards page immediately for good UX
         state.view = "rewards";

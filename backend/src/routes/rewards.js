@@ -140,6 +140,11 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
   }
 
   if (!rows || !rows.length) {
+    // Even with zero spend, still tick the cycle so it resets on time.
+    // Without this, a user with 0 spend past 30 days would never have their
+    // cycle reset because getUserCycleStartDate is only called below (with rows).
+    await getUserCycleStartDate(phone, countryCode, 0);
+
     // User has no spend data yet (new user with zero history, or no bookings since go-live).
     // IMPORTANT: still write a zero user_points row if none exists. Without this, every future
     // fetch would see cached=null and treat itself as "first fetch", incorrectly setting the
