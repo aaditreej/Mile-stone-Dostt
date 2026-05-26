@@ -176,9 +176,14 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
   // Re-fetch user after possible cycle reset
   const user = await db.findOne("users", { phone, country_code: countryCode });
 
-  // If baseline was never set (first fetch after login), set it now.
-  // NOTE: pg driver returns NUMERIC columns as strings ("0.00"), so use Number() before comparing.
-  const isFirstFetchBaseline = user && (user.cycle_baseline_points === null || Number(user.cycle_baseline_points) === 0) && !cached;
+  // If baseline was never confirmed, set it now to the current raw spend.
+  // auth.js writes -1 as a sentinel on first login ("unconfirmed").
+  // We check < 0 (not === 0) so users who legitimately had 0 pre-login spend
+  // (baseline correctly confirmed as 0) are not re-triggered on later fetches.
+  // We do NOT check !cached here — with the zero-row write, cached is always
+  // non-null after the first request, so !cached would never fire again.
+  // NOTE: pg driver returns NUMERIC columns as strings ("0.00"), so use Number().
+  const isFirstFetchBaseline = user && (user.cycle_baseline_points === null || Number(user.cycle_baseline_points) < 0);
   if (isFirstFetchBaseline) {
     await db.update("users", { phone, country_code: countryCode }, {
       cycle_baseline_points: rawTotalSpent,

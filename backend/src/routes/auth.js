@@ -102,7 +102,11 @@ router.post("/login", async (req, res) => {
     const updates = {};
     if (!existingUser?.cycle_start_date) {
       updates.cycle_start_date      = new Date();
-      updates.cycle_baseline_points = 0;  // will be set to raw total_spent on first points fetch
+      // Sentinel -1 = "baseline not yet confirmed by a live Redash fetch".
+      // getOrRefreshPoints sets it to rawTotalSpent on the first successful fetch,
+      // regardless of whether a cached user_points row already exists (avoids the
+      // stale-BQ-at-first-fetch bug where pre-login spend would be counted).
+      updates.cycle_baseline_points = -1;
     }
     if (dosttUserId) updates.dostt_user_id = dosttUserId;
     if (Object.keys(updates).length) {
