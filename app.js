@@ -545,7 +545,7 @@ function rewardsPage() {
                 if (!state.cycleEndDate) return state.dataLoading ? "" : "Resets in 30 days";
                 const ms = new Date(state.cycleEndDate) - Date.now();
                 if (ms <= 0) return "Resets today";
-                const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+                const days = Math.ceil(ms / (1000 * 60 * 60 * 24));
                 return `Resets in ${days} day${days === 1 ? "" : "s"}`;
               })()}</p>
             </div>
