@@ -78,13 +78,18 @@ const state = {
   country: COUNTRIES[0],
   showCountrySheet: false,
   countrySearch: "",
-  totalSpent: 0,
+  // Seed from cache so the rewards page renders instantly on session restore
+  totalSpent: Number(localStorage.getItem("dostt_totalSpent")) || 0,
   lastRefreshedAt: localStorage.getItem("dostt_lastRefreshedAt") || null,
   dataUpdatedAt:   localStorage.getItem("dostt_dataUpdatedAt")   || null,
   cycleEndDate:    localStorage.getItem("dostt_cycleEndDate")    || null,
-  claimed: new Set(),
-  claimingTiers: new Set(),  // tiers with in-flight API calls
-  dataLoading: true,         // true until first loadRewardsData completes
+  claimed: (() => {
+    try { return new Set(JSON.parse(localStorage.getItem("dostt_claimedTiers") || "[]")); }
+    catch { return new Set(); }
+  })(),
+  claimingTiers: new Set(),   // tiers with in-flight API calls
+  dataLoading: localStorage.getItem("dostt_totalSpent") === null, // false when cached data exists
+  dataRefreshing: false,      // true while a background fetch is in flight
   toast: "",
   loading: false,
   // tester state
@@ -205,9 +210,9 @@ function wireLoginEvents() {
         rewardsRendered = false;
         render();
         initLottie();
-        await loadRewardsData();
-        render();
-        initLottie();
+        // Fire in background — rewards page shows instantly, "Syncing…" indicator
+        // updates once the fetch completes (stale-while-revalidate on first login)
+        loadRewardsData().then(() => { render(); initLottie(); }).catch(() => {});
       }
     } catch (err) {
       showLoginError(err.message);
@@ -329,19 +334,17 @@ function setTestMode(mode) {
 }
 
 function wireTestModal() {
-  document.getElementById("test-api-btn")?.addEventListener("click", async () => {
+  document.getElementById("test-api-btn")?.addEventListener("click", () => {
     setTestMode("api");
     state.showTestModal = false;
     state.view = "rewards";
     rewardsRendered = false;
     render();
     initLottie();
-    await loadRewardsData();
-    render();
-    initLottie();
+    loadRewardsData().then(() => { render(); initLottie(); }).catch(() => {});
   });
 
-  document.getElementById("test-direct-btn")?.addEventListener("click", async () => {
+  document.getElementById("test-direct-btn")?.addEventListener("click", () => {
     setTestMode("direct_select");
     state.showTestModal = false;
     state.view = "rewards";
@@ -349,9 +352,7 @@ function wireTestModal() {
     rewardsRendered = false;
     render();
     initLottie();
-    await loadRewardsData();
-    render();
-    initLottie();
+    loadRewardsData().then(() => { render(); initLottie(); }).catch(() => {});
   });
 
   document.getElementById("test-bypass-btn")?.addEventListener("click", () => {
@@ -364,16 +365,14 @@ function wireTestModal() {
     render();
   });
 
-  document.getElementById("test-real-btn")?.addEventListener("click", async () => {
+  document.getElementById("test-real-btn")?.addEventListener("click", () => {
     setTestMode("real");
     state.showTestModal = false;
     state.view = "rewards";
     rewardsRendered = false;
     render();
     initLottie();
-    await loadRewardsData();
-    render();
-    initLottie();
+    loadRewardsData().then(() => { render(); initLottie(); }).catch(() => {});
   });
 }
 
@@ -546,6 +545,7 @@ function rewardsPage() {
               <p class="text-[10px] text-white/45">${(() => {
                 // lastRefreshedAt is already "DD/MM/YYYY HH:MM" from Redash — display as-is.
                 // dataUpdatedAt is an ISO timestamp — parse it with Date.
+                if (state.dataRefreshing) return "Syncing…";
                 if (state.lastRefreshedAt) return "Updated: " + state.lastRefreshedAt + " IST";
                 if (state.dataUpdatedAt) return "Updated: " + new Date(state.dataUpdatedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST";
                 return "Refreshes every 2 hrs";
@@ -827,6 +827,8 @@ function clearSession() {
   localStorage.removeItem("dostt_dataUpdatedAt");
   localStorage.removeItem("dostt_cycleEndDate");
   localStorage.removeItem("dostt_testMode");
+  localStorage.removeItem("dostt_totalSpent");
+  localStorage.removeItem("dostt_claimedTiers");
   state.view            = "login";
   state.phone           = "";
   state.country         = COUNTRIES[0];
@@ -840,6 +842,7 @@ function clearSession() {
   state.dataUpdatedAt   = null;
   state.cycleEndDate    = null;
   state.dataLoading     = true;
+  state.dataRefreshing  = false;
 }
 
 function showToast(text) {
@@ -918,13 +921,15 @@ function playCoinClink() {
 // ─── Data loading ─────────────────────────────────────────────────────────────
 
 async function loadRewardsData() {
-  state.dataLoading = true;
   if (state.testMode === "bypass") {
     state.totalSpent  = 24350;
     state.claimed     = new Set();
     state.dataLoading = false;
     return;
   }
+  // Don't set dataLoading = true — cached data may already be showing.
+  // Use dataRefreshing to show a lightweight "Syncing…" indicator instead.
+  state.dataRefreshing = true;
   try {
     const realMode = state.testMode === "real";
     const data = await api(`/rewards/me?phone=${encodeURIComponent(state.phone)}&countryCode=${encodeURIComponent(state.country.code)}${realMode ? "&realMode=true" : ""}`);
@@ -934,8 +939,10 @@ async function loadRewardsData() {
     state.cycleEndDate    = data.cycle?.endDate   || null;
     state.claimed         = new Set(data.claimedTiers || []);
     state.isTester        = data.isTester         || state.isTester;
-    // Persist so values survive page refresh
-    // Always overwrite localStorage so stale values from previous cycles don't persist
+    // Persist so values survive page refresh (stale-while-revalidate cache)
+    localStorage.setItem("dostt_totalSpent",    String(state.totalSpent));
+    localStorage.setItem("dostt_claimedTiers",  JSON.stringify([...state.claimed]));
+    // Always overwrite so stale values from previous cycles don't persist
     if (state.lastRefreshedAt) localStorage.setItem("dostt_lastRefreshedAt", state.lastRefreshedAt);
     else localStorage.removeItem("dostt_lastRefreshedAt");
     if (state.dataUpdatedAt)   localStorage.setItem("dostt_dataUpdatedAt",   state.dataUpdatedAt);
@@ -947,7 +954,8 @@ async function loadRewardsData() {
     state.toast = "Could not load rewards. Pull down to refresh.";
     setTimeout(() => { state.toast = ""; render(); }, 3000);
   } finally {
-    state.dataLoading = false;
+    state.dataLoading    = false;
+    state.dataRefreshing = false;
   }
 }
 
@@ -1050,7 +1058,7 @@ function initPullToRefresh() {
     // Reset indicator
     indicator.style.height = "0";
     indicator.style.opacity = "0";
-    if (delta >= THRESHOLD && el.scrollTop === 0 && !state.dataLoading) {
+    if (delta >= THRESHOLD && el.scrollTop === 0 && !state.dataRefreshing) {
       await loadRewardsData();
       render();
       initLottie();
@@ -1081,9 +1089,7 @@ function initPullToRefresh() {
           render();
           initLottie();
           if (savedMode !== "bypass") {
-            await loadRewardsData();
-            render();
-            initLottie();
+            loadRewardsData().then(() => { render(); initLottie(); }).catch(() => {});
           }
         } else {
           state.showTestModal = true;
