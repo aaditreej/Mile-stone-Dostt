@@ -162,8 +162,9 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
   // Re-fetch user after possible cycle reset
   const user = await db.findOne("users", { phone, country_code: countryCode });
 
-  // If baseline was never set (first fetch after login), set it now
-  const isFirstFetchBaseline = user && (user.cycle_baseline_points === null || user.cycle_baseline_points === 0) && !cached;
+  // If baseline was never set (first fetch after login), set it now.
+  // NOTE: pg driver returns NUMERIC columns as strings ("0.00"), so use Number() before comparing.
+  const isFirstFetchBaseline = user && (user.cycle_baseline_points === null || Number(user.cycle_baseline_points) === 0) && !cached;
   if (isFirstFetchBaseline) {
     await db.update("users", { phone, country_code: countryCode }, {
       cycle_baseline_points: rawTotalSpent,
