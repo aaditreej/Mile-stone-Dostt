@@ -34,7 +34,15 @@ const TIER_DATA = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Get user's current cycle start date as a DATE string ("YYYY-MM-DD")
+// Convert a Date to a "YYYY-MM-DD" string in IST (UTC+5:30).
+// Using a manual offset avoids depending on full Intl timezone data being
+// present in the Node.js build (some minimal deployments strip it).
+function toISTDateStr(date) {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // UTC+5:30
+  return new Date(date.getTime() + IST_OFFSET_MS).toISOString().split("T")[0];
+}
+
+// Get user's current cycle start date as a DATE string ("YYYY-MM-DD" in IST)
 // Resets the cycle automatically if 30 days have passed
 async function getUserCycleStartDate(phone, countryCode, rawTotalSpent = null) {
   const user = await db.findOne("users", { phone, country_code: countryCode });
@@ -59,7 +67,7 @@ async function getUserCycleStartDate(phone, countryCode, rawTotalSpent = null) {
     });
     logger.info("cycle reset", { phone, newCycleStart: cycleStart });
     // Audit the reset
-    const newCycleStr = cycleStart.toISOString().split("T")[0];
+    const newCycleStr = toISTDateStr(cycleStart);
     db.insert("points_audit", {
       phone,
       country_code:         countryCode,
@@ -72,8 +80,8 @@ async function getUserCycleStartDate(phone, countryCode, rawTotalSpent = null) {
     }).catch(() => {});
   }
 
-  // Return as DATE string "YYYY-MM-DD" — used as cycle scope in claimed_rewards
-  return cycleStart.toISOString().split("T")[0];
+  // Return as DATE string "YYYY-MM-DD" in IST — used as cycle scope in claimed_rewards
+  return toISTDateStr(cycleStart);
 }
 
 // Get Dostt user_id from Redash. Tries cache first, retries fresh.
@@ -150,8 +158,8 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
     }
     logger.info("user not found in points table — no spend data", { phone, dosttUserId });
     const excludeCycleStr = userRecord?.cycle_start_date
-      ? new Date(userRecord.cycle_start_date).toISOString().split("T")[0]
-      : new Date().toISOString().split("T")[0];
+      ? toISTDateStr(new Date(userRecord.cycle_start_date))
+      : toISTDateStr(new Date());
     db.insert("points_audit", {
       phone,
       country_code:         countryCode,
@@ -241,7 +249,9 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
 router.get("/me", async (req, res) => {
   try {
     const { phone, countryCode = "+91" } = req.query;
-    if (!phone) return res.status(400).json({ error: "phone is required" });
+    if (!phone || !/^\d{7,15}$/.test(phone)) {
+      return res.status(400).json({ error: "Invalid phone number" });
+    }
 
     // realMode=true lets the test phone bypass the fake MAX_TIER_POINTS override
     // and run the full Redash flow — so testers can verify their real spend.
@@ -256,7 +266,7 @@ router.get("/me", async (req, res) => {
     const user = await db.findOne("users", { phone, country_code: countryCode });
     const cycleStart = user?.cycle_start_date ? new Date(user.cycle_start_date) : new Date();
     const cycleEnd   = new Date(cycleStart.getTime() + CYCLE_MS);
-    const cycleStartDateStr = cycleStart.toISOString().split("T")[0];
+    const cycleStartDateStr = toISTDateStr(cycleStart);
 
     const claimedRows = await db.query(
       `SELECT tier_id FROM claimed_rewards
@@ -292,7 +302,9 @@ router.post("/claim", async (req, res) => {
     const { phone, countryCode = "+91", claimMode = "api", claimType = "real" } = req.body;
     const tierId = Number(req.body.tierId);
 
-    if (!phone) return res.status(400).json({ error: "phone is required" });
+    if (!phone || !/^\d{7,15}$/.test(phone)) {
+      return res.status(400).json({ error: "Invalid phone number" });
+    }
 
     const tier = TIER_DATA.find(t => t.id === tierId);
     if (!tier) return res.status(400).json({ error: "Invalid tierId" });
@@ -308,9 +320,13 @@ router.post("/claim", async (req, res) => {
     const points     = await getOrRefreshPoints(phone, countryCode, realMode);
     const totalSpent = (isTestPhone && !realMode) ? MAX_TIER_POINTS : (points ? Number(points.total_spent) : 0);
 
-    // Get user's current cycle start date (post-refresh so any cycle reset is reflected)
-    const cycleStartDateStr = await getUserCycleStartDate(phone, countryCode);
-    if (!cycleStartDateStr) return res.status(400).json({ error: "User not found. Please login again." });
+    // Read user AFTER refresh so any cycle reset is already reflected.
+    // Avoids a second getUserCycleStartDate() call (which does its own DB read).
+    const claimUser = await db.findOne("users", { phone, country_code: countryCode });
+    if (!claimUser?.cycle_start_date) {
+      return res.status(400).json({ error: "User not found. Please login again." });
+    }
+    const cycleStartDateStr = toISTDateStr(new Date(claimUser.cycle_start_date));
 
     // Guard: already claimed this cycle?
     const existing = await db.findOne("claimed_rewards", {
@@ -341,10 +357,9 @@ router.post("/claim", async (req, res) => {
       });
     }
 
-    // Resolve user_id — read from DB first, fall back to 17538 if missing
+    // Resolve user_id — already have claimUser from above, fall back to 17538 if missing
     let dosttUserId = null;
     if (!isDummy) {
-      const claimUser = await db.findOne("users", { phone, country_code: countryCode });
       dosttUserId = claimUser?.dostt_user_id;
       if (!dosttUserId) {
         // Pre-migration user: dostt_user_id was not saved at login. Look it up now and save.

@@ -512,6 +512,10 @@ function rewardsPage() {
 
   return `
     <div id="page-scroll" class="mx-auto w-full max-w-md h-[100svh] overflow-y-auto bg-noise">
+      <!-- Pull-to-refresh indicator -->
+      <div id="ptr-indicator" style="height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;transition:height 0.15s ease;pointer-events:none">
+        <div class="h-5 w-5 rounded-full border-2 border-t-transparent border-white/60 animate-spin"></div>
+      </div>
       <div class="flex min-h-[100svh] flex-col">
       <header class="relative px-4 pt-5 pb-3 shrink-0">
         <div class="flex items-center gap-3">
@@ -773,6 +777,7 @@ function render() {
     if (prevTierScroll) { const el = document.querySelector(".reward-scroll"); if (el) el.scrollTop = prevTierScroll; }
 
     initLottie();
+    initPullToRefresh();
     if (!rewardsRendered && state.totalSpent > 0) {
       rewardsRendered = true;
       sweepProgressBar();
@@ -1003,6 +1008,49 @@ window.addEventListener("click", async (event) => {
     render();
   }
 });
+
+// ─── Pull-to-refresh ──────────────────────────────────────────────────────────
+
+function initPullToRefresh() {
+  const el = document.getElementById("page-scroll");
+  const indicator = document.getElementById("ptr-indicator");
+  if (!el || !indicator) return;
+
+  const THRESHOLD = 65; // px of pull needed to trigger
+  let startY = 0;
+  let active  = false;
+
+  el.addEventListener("touchstart", (e) => {
+    if (el.scrollTop === 0) {
+      startY = e.touches[0].clientY;
+      active = true;
+    }
+  }, { passive: true });
+
+  el.addEventListener("touchmove", (e) => {
+    if (!active) return;
+    const delta = e.touches[0].clientY - startY;
+    if (delta > 0 && el.scrollTop === 0) {
+      const pull = Math.min(delta * 0.45, THRESHOLD);
+      indicator.style.height = pull + "px";
+      indicator.style.opacity = pull / THRESHOLD;
+    }
+  }, { passive: true });
+
+  el.addEventListener("touchend", async (e) => {
+    if (!active) return;
+    active = false;
+    const delta = e.changedTouches[0].clientY - startY;
+    // Reset indicator
+    indicator.style.height = "0";
+    indicator.style.opacity = "0";
+    if (delta >= THRESHOLD && el.scrollTop === 0 && !state.dataLoading) {
+      await loadRewardsData();
+      render();
+      initLottie();
+    }
+  }, { passive: true });
+}
 
 // ─── Session restore ──────────────────────────────────────────────────────────
 
