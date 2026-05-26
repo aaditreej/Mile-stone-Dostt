@@ -14,9 +14,9 @@ A WebView page embedded inside the Dostt app. Users earn "Dostt Points" by spend
 ├── assets/                 ← Images, Lottie JSON, audio
 ├── backend/
 │   ├── src/
-│   │   ├── index.js        ← Express entry point
+│   │   ├── index.js        ← Express entry point + daily audit cleanup
 │   │   ├── routes/
-│   │   │   ├── auth.js     ← POST /auth/login
+│   │   │   ├── auth.js     ← POST /auth/login, GET /auth/verify
 │   │   │   ├── rewards.js  ← GET /rewards/me, POST /rewards/claim
 │   │   │   └── admin.js    ← GET /admin/* (reporting)
 │   │   ├── db/
@@ -106,20 +106,38 @@ const state = {
   view: "login",            // "login" | "rewards" | "terms"
   phone: "",
   country: COUNTRIES[0],    // { flag, name, code }
-  totalSpent: 0,            // adjusted points for current cycle
-  lastRefreshedAt: null,    // Redash last_refreshed_at_ist
-  dataUpdatedAt: null,      // user_points.updated_at
-  cycleEndDate: null,       // ISO string
-  claimed: new Set(),       // tier IDs claimed this cycle
+
+  // Seeded from localStorage on page load (stale-while-revalidate)
+  totalSpent: Number(localStorage.getItem("dostt_totalSpent")) || 0,
+  lastRefreshedAt: localStorage.getItem("dostt_lastRefreshedAt") || null,
+  dataUpdatedAt:   localStorage.getItem("dostt_dataUpdatedAt")   || null,
+  cycleEndDate:    localStorage.getItem("dostt_cycleEndDate")    || null,
+  claimed: new Set(JSON.parse(localStorage.getItem("dostt_claimedTiers") || "[]")),
+
   claimingTiers: new Set(), // tier IDs with in-flight API calls
-  dataLoading: true,        // blocks UI until /rewards/me returns
+  dataLoading: localStorage.getItem("dostt_totalSpent") === null, // false when cache exists
+  dataRefreshing: false,    // true while a background /rewards/me fetch is in flight
   toast: "",
+  loading: false,
+
+  // tester state
   isTester: false,
-  testMode: null,           // null | "api" | "direct_select" | "bypass"
+  testMode: null,           // null | "api" | "direct_select" | "bypass" | "real"
   claimType: "real",        // "real" | "dummy"
   showTestModal: false,
 }
 ```
+
+## localStorage Keys
+| Key | Value | Cleared on |
+|-----|-------|------------|
+| `dostt_session` | `{ phone, country }` | logout |
+| `dostt_totalSpent` | String number | logout |
+| `dostt_claimedTiers` | JSON array of tier IDs | logout |
+| `dostt_lastRefreshedAt` | Redash timestamp string | logout / null from server |
+| `dostt_dataUpdatedAt` | ISO timestamp string | logout / null from server |
+| `dostt_cycleEndDate` | ISO timestamp string | logout / null from server |
+| `dostt_testMode` | `"api"` \| `"direct_select"` \| `"bypass"` \| `"real"` | logout |
 
 ## Frontend API Calls
 
@@ -129,7 +147,8 @@ POST /auth/login
 Body: { phone, countryCode }
 → { success, user: { phone, countryCode }, isTester }
 ```
-Called when user taps Login. On success: saves `{ phone, country }` to `localStorage("dostt_session")`, navigates to rewards view.
+Called when user taps Login. On success: saves `{ phone, country }` to `dostt_session`,
+navigates to rewards view, fires `loadRewardsData()` in background (non-blocking).
 
 ### Load Rewards Data
 ```
@@ -142,9 +161,20 @@ GET /rewards/me?phone=&countryCode=
     cycle: { startDate, endDate }
   }
 ```
-Called on: login success, session restore, test mode selection.
-Sets `state.dataLoading = true` at start, `false` in finally.
-On failure: shows toast "Could not load rewards. Pull down to refresh."
+Called on: login success, session restore, test mode selection, pull-to-refresh.
+
+**Stale-while-revalidate pattern:**
+- Does NOT set `dataLoading = true` at the start — cached data is already showing
+- Sets `dataRefreshing = true` while the fetch is in flight
+- Progress card shows "Syncing…" when `dataRefreshing`
+- On success: updates state AND saves `dostt_totalSpent` + `dostt_claimedTiers` to localStorage
+- In finally: sets `dataLoading = false` and `dataRefreshing = false`
+- On failure: shows toast "Could not load rewards. Pull down to refresh."
+
+All callers fire it without `await`:
+```js
+loadRewardsData().then(() => { render(); initLottie(); }).catch(() => {});
+```
 
 ### Claim Reward
 ```
@@ -188,6 +218,10 @@ Before every `render()` on the rewards page:
 - Saves `document.querySelector(".reward-scroll")?.scrollTop`
 - Restores both immediately after `root.innerHTML = rewardsPage()`
 
+## Pull-to-Refresh
+Touch events on `#page-scroll`. 65px threshold. Visual spinner in `#ptr-indicator`.
+Guard: `!state.dataRefreshing` (not `!state.dataLoading`) — prevents double-fire while fetch is in flight.
+
 ## API Helper
 ```js
 async function api(path, options = {})
@@ -199,17 +233,26 @@ async function api(path, options = {})
 ```
 
 ## Session Persistence
-`localStorage("dostt_session")` = `{ phone, country }`
-On load: if exists → skip login → show rewards → load data in background.
-Test phones on session restore → show test mode modal.
+`dostt_session` = `{ phone, country }`. On load:
+- Non-tester: show rewards page immediately (dataLoading = false if cache exists), then validate session + load fresh data in parallel via `Promise.allSettled`
+- Tester: restore `dostt_testMode` from localStorage, skip modal, load data in background
 
-## Test Phones
+`clearSession()` removes ALL localStorage keys and resets state to initial values including `dataLoading = true`.
+
+## Test Mode
 ```js
-const TEST_PHONES = ["9500365660", "9988818731"];
+function setTestMode(mode) {
+  state.testMode = mode;
+  localStorage.setItem("dostt_testMode", mode); // persists across page reloads
+}
 ```
-- Skip Redash verification on login
-- Always get `totalSpent = 24350` (all tiers unlocked)
-- Test modal: API / Direct Select / Bypass modes
+
+| Mode | Behaviour |
+|---|---|
+| `api` | Hits backend normally, saves to DB, normal points check |
+| `direct_select` | All tiers unlocked, hits backend, saves to DB |
+| `bypass` | Fully offline, no API, no DB, resets on logout |
+| `real` | Skips MAX_TIER_POINTS override, runs full Redash flow, shows actual spend |
 
 ## Cache Busting
 `index.html` loads `app.js?v=YYYYMMDD-N` and `styles.css?v=YYYYMMDD-N`.
@@ -232,7 +275,7 @@ const TEST_PHONES = ["9500365660", "9988818731"];
 3. Upsert users table (phone + country_code)
 4. If first login (no cycle_start_date):
    - Set cycle_start_date = NOW()
-   - Set cycle_baseline_points = 0
+   - Set cycle_baseline_points = -1  ← sentinel: "not yet confirmed by Redash"
 5. Save dostt_user_id to users.dostt_user_id
 6. Write to login_logs
 7. Return { success, user, isTester }
@@ -249,28 +292,47 @@ const TEST_PHONES = ["9500365660", "9988818731"];
 
 ---
 
-## GET /rewards/me
+## GET /auth/verify
 **Query:** `?phone=&countryCode=`
+
+Lightweight session re-validation used on page reload. Same Redash check as `/login` but:
+- Writes NO `login_logs` entry
+- Does NOT modify the `users` table
+- On Redash error: allows session through (degraded mode, `{ valid: true, degraded: true }`)
+
+---
+
+## GET /rewards/me
+**Query:** `?phone=&countryCode=&realMode=`
 
 **Flow:**
 ```
-1. getOrRefreshPoints(phone, countryCode)
-   ↓ (may reset cycle if 30 days passed)
-2. Read cycle_start_date from DB (post-refresh)
+1. getOrRefreshPoints(phone, countryCode, realMode)
+   ↓ (hits Redash fresh, may reset cycle if 30 days passed)
+2. Read cycle_start_date from DB (post-refresh so cycle reset is reflected)
 3. Query claimed_rewards WHERE cycle_start_date = current cycle
 4. Return combined response
 ```
 
 **`getOrRefreshPoints` internals:**
 ```
-- Test phone? → return cached immediately (no Redash)
-- Cache < 2h? → return cached
+- Test phone in non-real mode? → return cached immediately (no Redash call)
 - Read dostt_user_id from users table
   - If null: call Redash 17538, save to DB for next time
-- Call Redash 17546 with { user_id: dosttUserId } → 1 row for this user
-- If 0 rows: user has no spend data yet → return cached (0 points)
-- Apply baseline: adjustedSpent = rawTotalSpent - cycle_baseline_points
-- If first fetch (no cache + baseline=0): set baseline = rawTotalSpent
+- Call Redash 17564 with { user_id: dosttUserId }, max_age: 0 (always fresh BQ hit)
+- If 0 rows (no spend data):
+  - Still call getUserCycleStartDate(phone, countryCode, 0) — keeps cycle ticking
+  - Write zero-row to user_points if none exists (prevents re-triggering first-fetch logic)
+  - Return cached (0 points)
+- Single row returned: rawTotalSpent = Number(r.total_spent)
+- Call getUserCycleStartDate(phone, countryCode, rawTotalSpent)
+  - Resets cycle if 30 days passed, updates baseline to rawTotalSpent
+- Re-fetch user (post possible cycle reset)
+- isFirstFetchBaseline = cycle_baseline_points IS NULL OR < 0
+  - The -1 sentinel set at login triggers this on the very first successful Redash fetch
+  - Check < 0 (not === -1) because pg returns NUMERIC as string "−1.00"
+  - If true: set cycle_baseline_points = rawTotalSpent in DB
+- adjustedTotalSpent = MAX(0, rawTotalSpent - finalBaseline)
 - Upsert user_points table
 - Write to points_audit
 ```
@@ -293,23 +355,24 @@ const TEST_PHONES = ["9500365660", "9988818731"];
   }
 }
 ```
-Test phones always get `totalSpent = 24350`.
+Test phones in non-real mode always get `totalSpent = 24350`.
 
 ---
 
 ## POST /rewards/claim
-**Body:** `{ phone, countryCode?, tierId, claimMode?, claimType? }`
+**Body:** `{ phone, countryCode?, tierId, claimMode?, claimType?, realMode? }`
 
 **Flow:**
 ```
-1.  Validate tierId (must exist in TIER_DATA)
-2.  getUserCycleStartDate → get current cycle DATE string
-3.  Check claimed_rewards → if exists → 409
-4.  Sequential check: tier N requires tier N-1 claimed (skipped for direct_select)
-5.  getOrRefreshPoints → check points
-6.  If !isDirectSelect && totalSpent < tier.unlockAt → 403
+1.  Validate phone (regex: 7-15 digits) and tierId (must exist in TIER_DATA)
+2.  getOrRefreshPoints → refresh points and possibly reset cycle
+3.  Read user from DB (post-refresh, cycle reset already reflected)
+    → derive cycleStartDateStr from user.cycle_start_date
+4.  Check claimed_rewards → if exists → 409
+5.  Sequential check: tier N requires tier N-1 claimed (skipped for direct_select)
+6.  Check totalSpent >= tier.unlockAt (skipped for direct_select)
 7.  Resolve dostt_user_id:
-    - Read from users table (fast, no Redash)
+    - Read from claimUser (already fetched in step 3, no extra DB call)
     - Fallback: call Redash 17538 if null (pre-migration users only), save to DB
 8.  INSERT claim_notifications (status: "pending")
 9.  INSERT claimed_rewards (unique constraint → 409 on race)  ← idempotency gate
@@ -318,20 +381,20 @@ Test phones always get `totalSpent = 24350`.
 11. UPDATE claim_notifications (status: "success")
 12. Return { success, coinsAwarded, claimed }
 ```
-**Order matters:** claimed_rewards is inserted BEFORE the wallet call so a wallet failure can never leave coins credited without a DB record. On wallet failure the claim record is deleted so the user can retry.
+**Order matters:** `claimed_rewards` is inserted BEFORE the wallet call so a wallet failure can never leave coins credited without a DB record. On wallet failure the claim record is deleted so the user can retry.
 
 **Rollback states:**
-- Normal wallet failure → DELETE claimed_rewards succeeds → notification status `"failed"` → user gets 502, can retry
-- Wallet failure + DELETE also fails → notification status `"failed_unrolled"` → CRITICAL log → user told to contact support (not retry). Ops must manually `DELETE FROM claimed_rewards WHERE id = <claimedId>` before the user can claim again.
-- Race condition (23505 on INSERT claimed_rewards) → notification status `"duplicate"` → 409 returned
+- Normal wallet failure → DELETE claimed_rewards succeeds → notification `"failed"` → user gets 502, can retry
+- Wallet failure + DELETE also fails → notification `"failed_unrolled"` → CRITICAL log → user told to contact support. Ops must manually `DELETE FROM claimed_rewards WHERE id = <claimedId>` before the user can claim again.
+- Race condition (23505 on INSERT claimed_rewards) → notification `"duplicate"` → 409 returned
 
 **Responses:**
 ```
 200 { success: true, coinsAwarded: 30, claimed: {...} }
-400 { error: "phone is required" | "Invalid tierId" | "User not found" }
+400 { error: "Invalid phone number" | "Invalid tierId" | "User not found. Please login again." }
 403 { error: "Not enough Dostt Points. Need X, have Y." }
 409 { error: "Already claimed this cycle" }
-502 { error: "Failed to credit coins." | "Could not resolve Dostt account." }
+502 { error: "Failed to credit coins." | "Account lookup failed. Please log out..." }
 500 { error: "Failed to claim reward" }
 ```
 
@@ -344,16 +407,16 @@ Test phones always get `totalSpent = 24350`.
 **Called by:** `POST /auth/login` + `getDosttUserId()` fallback
 **Returns:** `user_id, mobile_no`
 Uses UNNEST + REGEXP_REPLACE to normalise phone (strips +91 prefix).
-**Cache:** `max_age: 0` at login (always fresh), `max_age: 3600` in getDosttUserId
+**Cache:** `max_age: 0` at login (always fresh), `max_age: 3600` in `getDosttUserId` fallback
 
 ## Query 17564 — Points Data (per-user, parameterized)
 **Parameter:** `{{ user_id }}` (Dostt user_id)
 **Called by:** `getOrRefreshPoints()` on every /rewards/me
 **Returns:** `user_id, mobile_no, wallet_balance, spent_on_audio, spent_on_video, total_spent, last_refreshed_at_ist, ltv`
-**Cache:** `max_age: 7200` — matches the 2h BigQuery table refresh cadence
+**Cache:** `max_age: 0` — always hits BigQuery fresh on every request
 
 Source table: `dostt-c1d96.ref_tables.sourav_magre_free_rewards_user_ltv`
-Refreshed every 2h via BigQuery scheduled query.
+Refreshed every ~2h via BigQuery scheduled query.
 
 Column meanings:
 - `total_spent` = cumulative spend since go-live (2026-05-22 10:00 IST)
@@ -368,39 +431,52 @@ Backend reads `rows[0]` directly — single-user query always returns 1 row or 0
 
 ## Calculation
 ```
-rawTotalSpent      = from Redash 17564 (spend since go-live)
+rawTotalSpent      = from Redash 17564 (cumulative spend since go-live)
 finalBaseline      = users.cycle_baseline_points
 adjustedTotalSpent = MAX(0, rawTotalSpent - finalBaseline)
 ```
 User sees `adjustedTotalSpent`. This ensures:
-- New user starts at 0 (not their historical spend)
+- New user starts at 0 (not their historical spend before joining rewards)
 - After 30-day reset: starts at 0 again
 
-## First Login Baseline
+## First Login Baseline (−1 sentinel)
 ```
-Login → cycle_baseline_points = 0
-First Redash fetch → isFirstFetchBaseline = true
+Login → cycle_baseline_points = -1   ← sentinel: "not yet confirmed"
+First Redash fetch → isFirstFetchBaseline = (cycle_baseline_points < 0)
   → DB updated: cycle_baseline_points = rawTotalSpent
-  → finalBaseline = rawTotalSpent (uses new value, not stale 0)
+  → finalBaseline = rawTotalSpent (uses new value immediately, not stale -1)
   → adjustedTotalSpent = 0 ✓
 ```
+Why `-1` and not `0`: A user with legitimate 0 pre-login spend would also have `cycle_baseline_points = 0` after the first fetch confirms it. Using `-1` as sentinel lets us distinguish "not yet confirmed" from "confirmed as 0" so subsequent fetches don't re-trigger the baseline-setting logic.
+
+`isFirstFetchBaseline` checks `Number(cycle_baseline_points) < 0` (not `=== -1`) because pg returns NUMERIC columns as strings like `"-1.00"`.
 
 ## 30-Day Cycle Reset
-`getUserCycleStartDate()` runs on every points fetch:
+`getUserCycleStartDate()` runs on every points fetch (including zero-spend users):
 ```
 if (now - cycle_start_date) >= 30 days:
   cycle_start_date = now
   cycle_baseline_points = rawTotalSpent
   → write "cycle_reset" event to points_audit
 ```
+Called with `rawTotalSpent = 0` even for zero-spend users so their cycle still resets on time.
 Claims in new cycle: `claimed_rewards` scoped by `cycle_start_date` DATE column.
+
+## IST Date Handling
+```js
+function toISTDateStr(date) {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // UTC+5:30
+  return new Date(date.getTime() + IST_OFFSET_MS).toISOString().split("T")[0];
+}
+```
+Used for all `cycle_start_date` DATE strings. Manual offset instead of `Intl` to avoid timezone data issues in minimal Node.js builds.
 
 ## dostt_user_id Flow
 ```
-Login  → 17538 called → user_id saved to users.dostt_user_id
-/me    → read dostt_user_id from DB → call 17564 → find user row
+Login  → Redash 17538 called → user_id saved to users.dostt_user_id
+/me    → read dostt_user_id from DB → call Redash 17564 → get spend row
          (if null: fallback to 17538, save to DB for next time)
-/claim → read dostt_user_id from DB → credit wallet
+/claim → read dostt_user_id from claimUser (already fetched) → credit wallet
          (if null: fallback to 17538)
 ```
 
@@ -413,13 +489,13 @@ Login  → 17538 called → user_id saved to users.dostt_user_id
 phone                 VARCHAR(20)    -- PK part
 country_code          VARCHAR(10)    -- PK part, default '+91'
 cycle_start_date      TIMESTAMPTZ    -- set on first login
-cycle_baseline_points NUMERIC(14,2)  -- raw spend at cycle start
+cycle_baseline_points NUMERIC(14,2)  -- -1 at first login; set to rawTotalSpent on first fetch
 dostt_user_id         VARCHAR(100)   -- from Redash 17538 at login
 created_at            TIMESTAMPTZ
 UNIQUE (phone, country_code)
 ```
 
-## user_points (2h cache of Redash data)
+## user_points (live Redash cache — refreshed on every /me call)
 ```sql
 phone                 VARCHAR(20)    -- UNIQUE
 user_id               VARCHAR(100)   -- dostt user_id
@@ -427,7 +503,7 @@ wallet_balance        NUMERIC(14,2)
 spent_on_audio        NUMERIC(14,2)
 spent_on_video        NUMERIC(14,2)
 total_spent           NUMERIC(14,2)  -- ADJUSTED (baseline subtracted)
-last_refreshed_at_ist TIMESTAMPTZ    -- from Redash
+last_refreshed_at_ist TEXT           -- "DD/MM/YYYY HH:MM" string from Redash
 ltv                   NUMERIC(14,2)  -- all-time spend
 updated_at            TIMESTAMPTZ    -- when backend last synced
 ```
@@ -440,7 +516,7 @@ dostt_user_id         VARCHAR(100)
 tier_id               INTEGER         -- 1-17
 unlock_at             INTEGER         -- points threshold
 coins_awarded         INTEGER
-cycle_start_date      DATE            -- scopes claim to cycle
+cycle_start_date      DATE            -- scopes claim to cycle (IST date string)
 claimed_at            TIMESTAMPTZ
 UNIQUE (phone, country_code, tier_id, cycle_start_date)
 ```
@@ -473,7 +549,7 @@ created_at            TIMESTAMPTZ
 ## points_audit (for complaint investigation)
 ```sql
 phone, country_code
-event                 VARCHAR(30)    -- "first_fetch" | "refresh" | "cycle_reset"
+event                 VARCHAR(30)    -- "first_fetch" | "refresh" | "cycle_reset" | "no_spend_data"
 raw_total_spent       NUMERIC(14,2)  -- from Redash
 baseline_points       NUMERIC(14,2)  -- subtracted
 adjusted_total_spent  NUMERIC(14,2)  -- what user sees
@@ -481,6 +557,7 @@ cycle_start_date      DATE
 note                  TEXT           -- e.g. "raw 5000 − baseline 4000 = 1000"
 created_at            TIMESTAMPTZ
 ```
+Pruned automatically: migration prunes on startup + `index.js` runs a daily `setInterval` to delete rows older than 90 days.
 
 ## DB Views (monitoring only, not used by API)
 | View | Shows |
@@ -520,8 +597,7 @@ Defined identically in `app.js` AND `backend/src/routes/rewards.js`. **Keep in s
 
 # TEST PHONES
 ```
-9500365660   primary tester
-9988818731   secondary tester / demo
+9988818731   tester / demo
 ```
 Defined in THREE files — update all three together:
 - `app.js`
@@ -529,10 +605,16 @@ Defined in THREE files — update all three together:
 - `backend/src/routes/rewards.js`
 
 Test phone behaviour:
-- Skip 17538 verification on login
-- Skip 17564 Redash fetch — `totalSpent` always = 24350
-- Can use Direct Select (bypass points check)
-- Can use Dummy mode (claim logged, wallet NOT credited)
+- Skip Redash 17538 verification on login
+- In non-real modes: `totalSpent` always = 24350 (all tiers unlocked), Redash 17564 not called
+- In **real mode**: full Redash flow runs, shows actual spend from BigQuery
+- Test mode is persisted to `dostt_testMode` localStorage so it survives page reloads
+- `clearSession()` removes `dostt_testMode` so the modal re-appears on next login
+
+To reset test phone claims (DB):
+```sql
+DELETE FROM claimed_rewards WHERE phone = '9988818731';
+```
 
 ---
 
@@ -544,7 +626,7 @@ user_id,coins
 ```
 Headers: `x-n8n-auth-key`, multipart/form-data
 Timeout: 20 seconds
-Used only in `POST /rewards/claim` after existing checks pass.
+Used only in `POST /rewards/claim` after all checks pass.
 
 ---
 
@@ -567,7 +649,7 @@ cd backend && npm run dev
 
 # Clear test phone claims (reset to tier 1)
 docker compose exec postgres psql -U dostt -d dostt_rewards \
-  -c "DELETE FROM claimed_rewards WHERE phone IN ('9500365660', '9988818731');"
+  -c "DELETE FROM claimed_rewards WHERE phone = '9988818731';"
 ```
 
 ---
@@ -679,13 +761,16 @@ If using Kubero's UI instead of raw kubectl:
 # KNOWN GOTCHAS
 
 1. **Cache busting** — bump `?v=` in `index.html` on every frontend deploy
-2. **Tier data sync** — defined in two places; keep identical
+2. **Tier data sync** — defined in two places (`app.js` + `rewards.js`); keep identical
 3. **Test phone list** — defined in three files; keep identical
 4. **Migration** — run after every schema change; safe to re-run (IF NOT EXISTS throughout)
-5. **17564 is parameterized** — pass `user_id` and get 1 row back; reads from pre-materialized BigQuery table refreshed every 2h
+5. **17564 is parameterized + always fresh** — `max_age: 0` means every `/rewards/me` hits BigQuery. BQ table refreshes every ~2h, so points update as fast as BQ does. No Redash result caching.
 6. **No LTV gate** — all Dostt users are in the table; users with zero spend since go-live get 0 points (correct)
 7. **WebKit input** — phone input uses `type="text" inputmode="numeric"` not `type="number"`; `-webkit-text-fill-color` required in CSS for WebView visibility
-8. **Sequential claiming** — enforced on BOTH frontend and backend; tier N requires tier N-1 claimed first. `direct_select` test mode bypasses the backend check.
-9. **Scroll restore** — `id="page-scroll"` on outer div and class `reward-scroll` on tier list are used to save/restore scroll; don't remove these
-10. **claim_notifications / points_audit grow unboundedly** — no TTL or archival. Schedule a periodic cleanup job (e.g. DELETE rows older than 90 days) before table size becomes a problem.
-11. **no_spend_data audit** — when a user has no rows in the points table (zero spend since go-live), a `"no_spend_data"` event is written to `points_audit`. If a user reports 0 points and all tiers locked, check this table first.
+8. **Sequential claiming** — enforced on BOTH frontend and backend; tier N requires tier N-1 claimed first. `direct_select` test mode bypasses the backend sequential check.
+9. **Scroll restore** — `id="page-scroll"` on outer div and class `reward-scroll` on tier list are used to save/restore scroll positions; don't remove these IDs
+10. **points_audit / login_logs auto-pruned** — migration deletes rows older than 90 days on startup; `index.js` also runs a daily `setInterval` for the same. No manual cleanup needed.
+11. **no_spend_data audit event** — when a user has no rows in the points table (zero spend since go-live), a `"no_spend_data"` event is written to `points_audit`. If a user reports 0 points and all tiers locked, check this table first.
+12. **Stale localStorage cache** — `dostt_totalSpent` and `dostt_claimedTiers` are shown immediately on page load before the background fetch completes. This is intentional (no lag). After the fetch, state updates. If a cycle just reset or a claim was made on another device, users will see the stale data for ~2–5 seconds until the fetch resolves.
+13. **pg NUMERIC → string** — PostgreSQL's `pg` driver returns `NUMERIC` columns as strings (e.g. `"200.00"`, `"-1.00"`). Always wrap with `Number()` before arithmetic or comparisons. This applies to `cycle_baseline_points`, `total_spent`, `wallet_balance`, etc.
+14. **Test phone real mode showing stale data** — if real mode shows unexpected points, the old backend (pre `max_age:0` fix) may still be deployed. Redash caches last known data for up to 2h. After deploying the latest backend, real mode always hits BigQuery fresh.
