@@ -219,17 +219,9 @@ body,
 }
 
 /* ── Login progress fill ── */
-@keyframes login-crawl {
-  0%   { width: 5%;  }
-  30%  { width: 40%; }
-  60%  { width: 65%; }
-  80%  { width: 78%; }
-  100% { width: 82%; }
-}
-
-@keyframes login-shine {
-  0%   { transform: translateX(-100%) skewX(-15deg); }
-  100% { transform: translateX(350%)  skewX(-15deg); }
+@keyframes login-slide {
+  0%   { transform: translateX(-150%); }
+  100% { transform: translateX(350%); }
 }
 
 .login-btn-ghost {
@@ -240,35 +232,22 @@ body,
 .login-progress-fill {
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, #7c3aed, #844aff);
   border-radius: inherit;
   width: 0%;
   z-index: 0;
-  overflow: hidden;
-  transition: width 0.4s ease;
 }
 
 .login-progress-fill.crawling {
-  animation: login-crawl 5s ease-out forwards;
-}
-
-.login-progress-fill.crawling::after {
-  content: '';
-  position: absolute;
-  top: 0; bottom: 0;
-  width: 40%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
-  animation: login-shine 1.5s ease-in-out infinite;
+  width: 45%;
+  background: linear-gradient(90deg, #7c3aed, #844aff);
+  animation: login-slide 1.6s ease-in-out infinite;
 }
 
 .login-progress-fill.done {
   width: 100%;
+  background: linear-gradient(90deg, #7c3aed, #844aff);
   animation: none;
   transition: width 0.4s ease;
-}
-
-.login-progress-fill.done::after {
-  display: none;
 }
 
 @keyframes logoBounceHard {
