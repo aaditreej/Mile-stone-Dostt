@@ -196,6 +196,10 @@ function wireLoginEvents() {
     loginBtn.disabled = true;
     loginBtn.textContent = "Logging in…";
 
+    // Clear any previous error
+    const prevErr = document.getElementById("login-error");
+    if (prevErr) prevErr.textContent = "";
+
     // Start progress fill animation
     const fill = document.getElementById("login-progress-fill");
     const btnWrap = document.getElementById("login-btn-wrap");

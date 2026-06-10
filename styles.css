@@ -224,9 +224,7 @@ body,
   30%  { width: 40%; }
   60%  { width: 65%; }
   80%  { width: 78%; }
-  90%  { width: 82%; }
-  95%  { width: 82%; }
-  100% { width: 5%;  }
+  100% { width: 82%; }
 }
 
 @keyframes login-shine {
@@ -251,7 +249,7 @@ body,
 }
 
 .login-progress-fill.crawling {
-  animation: login-crawl 5s ease-in-out infinite;
+  animation: login-crawl 5s ease-out forwards;
 }
 
 .login-progress-fill.crawling::after {
