@@ -242,7 +242,7 @@ body,
   inset: 0;
   background: linear-gradient(90deg, #7c3aed, #844aff);
   border-radius: inherit;
-  width: 5%;
+  width: 0%;
   z-index: 0;
   overflow: hidden;
   transition: width 0.4s ease;
