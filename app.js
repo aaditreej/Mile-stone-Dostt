@@ -167,12 +167,15 @@ function loginPage() {
           />
         </div>
 
-        <button
-          id="login-btn"
-          class="w-full rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-500 py-4 text-sm font-semibold text-white shadow-[0_4px_20px_rgba(139,92,246,0.45)] active:opacity-90 transition-opacity"
-        >
-          Login
-        </button>
+        <div id="login-btn-wrap" class="relative w-full rounded-2xl overflow-hidden">
+          <div id="login-progress-fill" class="login-progress-fill"></div>
+          <button
+            id="login-btn"
+            class="relative z-10 w-full rounded-2xl bg-gradient-to-r from-[#7c3aed] to-[#844aff] py-4 text-sm font-semibold text-white shadow-[0_4px_20px_rgba(124,58,237,0.45)] active:opacity-90 transition-opacity"
+          >
+            Login
+          </button>
+        </div>
 
       </div>
     </div>
@@ -193,6 +196,13 @@ function wireLoginEvents() {
     loginBtn.disabled = true;
     loginBtn.textContent = "Logging in…";
 
+    // Start progress fill animation
+    const fill = document.getElementById("login-progress-fill");
+    const btnWrap = document.getElementById("login-btn-wrap");
+    if (fill) fill.classList.add("crawling");
+    if (btnWrap) btnWrap.classList.add("login-btn-ghost");
+    if (loginBtn) loginBtn.classList.remove("bg-gradient-to-r", "from-[#7c3aed]", "to-[#844aff]", "shadow-[0_4px_20px_rgba(124,58,237,0.45)]");
+
     try {
       const data = await api("/auth/login", {
         method: "POST",
@@ -200,6 +210,10 @@ function wireLoginEvents() {
       });
       localStorage.setItem("dostt_session", JSON.stringify({ phone, country: state.country }));
       state.isTester = data.isTester || false;
+
+      // Snap fill to 100% and stop animation
+      if (fill) { fill.classList.remove("crawling"); fill.classList.add("done"); }
+      if (loginBtn) loginBtn.textContent = "✓  Logged in!";
 
       if (state.isTester) {
         state.testMode = null;
@@ -215,6 +229,10 @@ function wireLoginEvents() {
         loadRewardsData().then(() => { render(); initLottie(); }).catch(() => {});
       }
     } catch (err) {
+      // Reset button to normal state
+      if (fill) { fill.classList.remove("crawling", "done"); }
+      if (btnWrap) btnWrap.classList.remove("login-btn-ghost");
+      if (loginBtn) loginBtn.classList.add("bg-gradient-to-r", "from-[#7c3aed]", "to-[#844aff]", "shadow-[0_4px_20px_rgba(124,58,237,0.45)]");
       showLoginError(err.message);
       loginBtn.disabled = false;
       loginBtn.textContent = "Login";
@@ -576,17 +594,18 @@ function rewardsPage() {
               <div class="flex items-center gap-2">
                 <img src="assets/audio-icon.png" alt="" aria-hidden="true" class="h-6 w-6 shrink-0" />
                 <div class="min-w-0">
-                  <h3 class="text-xs font-semibold">Audio Calls</h3>
-                  <p class="text-[10px] text-dosttMuted leading-tight mt-0.5">Earn points by calling</p>
+                  <h3 class="text-xs font-semibold truncate">Audio Calls</h3>
+                  <p class="text-[10px] text-dosttMuted leading-tight mt-0.5 truncate">Earn points by calling</p>
                 </div>
               </div>
             </article>
-            <article class="rounded-2xl border border-white/10 bg-gradient-to-r from-violet-300/15 to-fuchsia-400/15 p-3">
+            <article class="relative rounded-2xl border border-white/10 bg-gradient-to-r from-violet-300/15 to-fuchsia-400/15 p-3 overflow-hidden">
+              <div class="absolute top-[10px] right-[-22px] bg-gradient-to-br from-[#7c3aed] to-[#844aff] text-white text-[9px] font-extrabold px-7 py-[3px] rotate-[35deg] whitespace-nowrap z-10 shadow-[0_2px_8px_rgba(124,58,237,0.55)] tracking-wide">6× points</div>
               <div class="flex items-center gap-2">
                 <img src="assets/video-icon.png" alt="" aria-hidden="true" class="h-7 w-7 shrink-0" />
                 <div class="min-w-0">
-                  <h3 class="text-xs font-semibold">Video Calls</h3>
-                  <p class="text-[10px] text-dosttMuted leading-tight mt-0.5">Earn points by calling</p>
+                  <h3 class="text-xs font-semibold truncate">Video Calls</h3>
+                  <p class="text-[10px] text-dosttMuted leading-tight mt-0.5 truncate">Earn points by calling</p>
                 </div>
               </div>
             </article>

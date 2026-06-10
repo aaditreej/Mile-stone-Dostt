@@ -218,6 +218,61 @@ body,
   }
 }
 
+/* ── Login progress fill ── */
+@keyframes login-crawl {
+  0%   { width: 5%;  }
+  30%  { width: 40%; }
+  60%  { width: 65%; }
+  80%  { width: 78%; }
+  90%  { width: 82%; }
+  95%  { width: 82%; }
+  100% { width: 5%;  }
+}
+
+@keyframes login-shine {
+  0%   { transform: translateX(-100%) skewX(-15deg); }
+  100% { transform: translateX(350%)  skewX(-15deg); }
+}
+
+.login-btn-ghost {
+  background: rgba(124, 58, 237, 0.18);
+  border: 1.5px solid rgba(124, 58, 237, 0.45);
+}
+
+.login-progress-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #7c3aed, #844aff);
+  border-radius: inherit;
+  width: 5%;
+  z-index: 0;
+  overflow: hidden;
+  transition: width 0.4s ease;
+}
+
+.login-progress-fill.crawling {
+  animation: login-crawl 5s ease-in-out infinite;
+}
+
+.login-progress-fill.crawling::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+  animation: login-shine 1.5s ease-in-out infinite;
+}
+
+.login-progress-fill.done {
+  width: 100%;
+  animation: none;
+  transition: width 0.4s ease;
+}
+
+.login-progress-fill.done::after {
+  display: none;
+}
+
 @keyframes logoBounceHard {
   0%,
   100% {
