@@ -347,6 +347,25 @@ const tables = [
     `,
   },
 
+  // ── Points raw cache (bulk-synced every 30 min from Redash query 18796) ───────
+  {
+    name: "points_raw_cache",
+    sql: `
+      CREATE TABLE IF NOT EXISTS points_raw_cache (
+        dostt_user_id         VARCHAR(100) PRIMARY KEY,
+        mobile_no             VARCHAR(20),
+        wallet_balance        NUMERIC(14,2) NOT NULL DEFAULT 0,
+        spent_on_audio        NUMERIC(14,2) NOT NULL DEFAULT 0,
+        spent_on_video        NUMERIC(14,2) NOT NULL DEFAULT 0,
+        raw_total_spent       NUMERIC(14,2) NOT NULL DEFAULT 0,
+        last_refreshed_at_ist TEXT,
+        ltv                   NUMERIC(14,2) NOT NULL DEFAULT 0,
+        synced_at             TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_raw_cache_mobile ON points_raw_cache (mobile_no);
+    `,
+  },
+
   // ── Housekeeping ─────────────────────────────────────────────────────────────
   {
     name: "prune login_logs older than 90 days",

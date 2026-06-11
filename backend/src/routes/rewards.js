@@ -135,7 +135,35 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
     // max_age: 0 — always hit BigQuery fresh; no Redash result cache for any user.
     rows = await runQuery(queryId, { user_id: dosttUserId }, 0);
   } catch (err) {
-    logger.warn("Redash points fetch failed, using cached data", { phone, err: err.message });
+    logger.warn("Redash points fetch failed, falling back to raw cache", { phone, err: err.message });
+    // Try points_raw_cache (bulk-synced every 30 min) with inline baseline adjustment
+    try {
+      const cacheRows = await db.query(
+        `SELECT p.*, u.cycle_baseline_points
+         FROM points_raw_cache p
+         JOIN users u ON u.dostt_user_id = p.dostt_user_id
+         WHERE u.phone = $1`,
+        [phone]
+      );
+      if (cacheRows.length) {
+        const r        = cacheRows[0];
+        const baseline = Math.max(0, Number(r.cycle_baseline_points) || 0);
+        const adjusted = Math.max(0, Number(r.raw_total_spent) - baseline);
+        return {
+          user_id:              r.dostt_user_id,
+          phone,
+          wallet_balance:       Number(r.wallet_balance)  || 0,
+          spent_on_audio:       Number(r.spent_on_audio)  || 0,
+          spent_on_video:       Number(r.spent_on_video)  || 0,
+          total_spent:          adjusted,
+          last_refreshed_at_ist: r.last_refreshed_at_ist  || null,
+          ltv:                  Number(r.ltv)              || 0,
+          updated_at:           r.synced_at,
+        };
+      }
+    } catch (cacheErr) {
+      logger.warn("points_raw_cache fallback also failed", { phone, err: cacheErr.message });
+    }
     return cached;
   }
 
