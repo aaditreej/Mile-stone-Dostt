@@ -79,8 +79,8 @@ router.post("/login", async (req, res) => {
           try {
             const normalised = phone.replace(/^(\+?91)/, "");
             const cacheRows = await db.query(
-              `SELECT dostt_user_id FROM points_raw_cache WHERE mobile_no = $1 OR mobile_no = $2 LIMIT 1`,
-              [phone, normalised]
+              `SELECT dostt_user_id FROM points_raw_cache WHERE mobile_no = $1 OR mobile_no = $2 OR mobile_no = $3 LIMIT 1`,
+              [phone, normalised, `91${normalised}`]
             );
             if (cacheRows.length) {
               dosttUser = { user_id: cacheRows[0].dostt_user_id, mobile_no: phone };

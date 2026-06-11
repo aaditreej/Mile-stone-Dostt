@@ -120,8 +120,24 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
   if (!dosttUserId) {
     logger.info("dostt_user_id missing in DB, falling back to 17538 lookup", { phone });
     dosttUserId = await getDosttUserId(phone, realMode);
+    if (!dosttUserId) {
+      // Redash also failed — try resolving from points_raw_cache by mobile_no
+      try {
+        const normalised = phone.replace(/^(\+?91)/, "");
+        const idRows = await db.query(
+          `SELECT dostt_user_id FROM points_raw_cache
+           WHERE mobile_no = $1 OR mobile_no = $2 OR mobile_no = $3 LIMIT 1`,
+          [phone, normalised, `91${normalised}`]
+        );
+        if (idRows.length) {
+          dosttUserId = String(idRows[0].dostt_user_id);
+          logger.info("dostt_user_id resolved from points_raw_cache", { phone, dosttUserId });
+        }
+      } catch (cacheErr) {
+        logger.warn("points_raw_cache user_id lookup failed", { phone, err: cacheErr.message });
+      }
+    }
     if (dosttUserId) {
-      // Save it so future fetches skip the Redash call
       await db.update("users", { phone, country_code: countryCode }, { dostt_user_id: dosttUserId });
     } else {
       logger.warn("could not resolve dostt_user_id, skipping points fetch", { phone });
