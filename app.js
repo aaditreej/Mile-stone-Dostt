@@ -311,7 +311,7 @@ function showLoginError(msg) {
     err = document.createElement("p");
     err.id = "login-error";
     err.className = "mt-3 text-center text-xs text-red-400";
-    document.getElementById("login-btn").insertAdjacentElement("afterend", err);
+    document.getElementById("login-btn-wrap").insertAdjacentElement("afterend", err);
   }
   err.textContent = msg;
 }
