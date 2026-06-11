@@ -75,25 +75,9 @@ router.post("/login", async (req, res) => {
         try {
           dosttUser = await lookupDosttUser(phone);
         } catch (err) {
-          logger.warn("Redash verify error, trying points_raw_cache fallback", { phone, err: err.message });
-          try {
-            const normalised = phone.replace(/^(\+?91)/, "");
-            const cacheRows = await db.query(
-              `SELECT dostt_user_id FROM points_raw_cache WHERE mobile_no = $1 OR mobile_no = $2 OR mobile_no = $3 LIMIT 1`,
-              [phone, normalised, `91${normalised}`]
-            );
-            if (cacheRows.length) {
-              dosttUser = { user_id: cacheRows[0].dostt_user_id, mobile_no: phone };
-              logger.info("login verified via points_raw_cache fallback", { phone });
-            }
-          } catch (cacheErr) {
-            logger.warn("points_raw_cache login fallback failed", { phone, err: cacheErr.message });
-          }
-          if (!dosttUser) {
-            await recordLogin(phone, countryCode, null, "failed", "Redash lookup failed");
-            logger.error("Redash verify error", { phone, err: err.message });
-            return res.status(503).json({ error: "Verification service unavailable. Please try again." });
-          }
+          await recordLogin(phone, countryCode, null, "failed", "Redash lookup failed");
+          logger.error("Redash verify error", { phone, err: err.message });
+          return res.status(503).json({ error: "Verification service unavailable. Please try again." });
         }
 
         if (!dosttUser) {
