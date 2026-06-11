@@ -129,6 +129,36 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
     }
   }
 
+  // Fast path: returning users with a confirmed baseline are served instantly from
+  // points_raw_cache (synced every 30 min) without waiting for Redash.
+  // New users (baseline = -1) still go through Redash so their baseline can be set.
+  const hasConfirmedBaseline = userRecord && Number(userRecord.cycle_baseline_points) >= 0;
+  if (hasConfirmedBaseline && !realMode) {
+    const rawRows = await db.query(
+      `SELECT * FROM points_raw_cache WHERE dostt_user_id = $1`, [String(dosttUserId)]
+    );
+    if (rawRows.length) {
+      const r = rawRows[0];
+      const rawTotalSpent = Number(r.raw_total_spent) || 0;
+      await getUserCycleStartDate(phone, countryCode, rawTotalSpent);
+      const postCycleUser = await db.findOne("users", { phone, country_code: countryCode });
+      const baseline = Math.max(0, Number(postCycleUser.cycle_baseline_points) || 0);
+      const adjusted = Math.max(0, rawTotalSpent - baseline);
+      logger.info("points served from raw cache", { phone, adjusted });
+      return {
+        user_id:              r.dostt_user_id,
+        phone,
+        wallet_balance:       Number(r.wallet_balance)  || 0,
+        spent_on_audio:       Number(r.spent_on_audio)  || 0,
+        spent_on_video:       Number(r.spent_on_video)  || 0,
+        total_spent:          adjusted,
+        last_refreshed_at_ist: r.last_refreshed_at_ist  || null,
+        ltv:                  Number(r.ltv)              || 0,
+        updated_at:           r.synced_at,
+      };
+    }
+  }
+
   let rows;
   try {
     // Query 17564: SELECT … FROM sourav_magre_free_rewards_user_ltv WHERE user_id = {{ user_id }}
