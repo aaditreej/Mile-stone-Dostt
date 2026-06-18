@@ -108,7 +108,15 @@ router.post("/login", async (req, res) => {
       // stale-BQ-at-first-fetch bug where pre-login spend would be counted).
       updates.cycle_baseline_points = -1;
     }
-    if (dosttUserId) updates.dostt_user_id = dosttUserId;
+    if (dosttUserId) {
+      // Remove any null-phone placeholder row created by auto-login for this dostt_user_id
+      // before setting it on the real phone row — prevents unique constraint violation
+      await db.query(
+        "DELETE FROM users WHERE dostt_user_id = $1 AND phone IS NULL",
+        [String(dosttUserId)]
+      );
+      updates.dostt_user_id = dosttUserId;
+    }
     if (Object.keys(updates).length) {
       await db.update("users", { phone, country_code: countryCode }, updates);
     }
