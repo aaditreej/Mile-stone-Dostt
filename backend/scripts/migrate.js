@@ -366,6 +366,28 @@ const tables = [
     `,
   },
 
+  // ── Auto-login without phone (dostt_user_id as primary identifier) ───────────
+  {
+    name: "users phone nullable + dostt_user_id unique index (safe)",
+    sql: `
+      ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_dostt_user_id
+        ON users(dostt_user_id) WHERE dostt_user_id IS NOT NULL;
+    `,
+  },
+  {
+    name: "claimed_rewards phone nullable (safe)",
+    sql: `ALTER TABLE claimed_rewards ALTER COLUMN phone DROP NOT NULL;`,
+  },
+  {
+    name: "login_logs phone nullable (safe)",
+    sql: `ALTER TABLE login_logs ALTER COLUMN phone DROP NOT NULL;`,
+  },
+  {
+    name: "claim_notifications phone nullable (safe)",
+    sql: `ALTER TABLE claim_notifications ALTER COLUMN phone DROP NOT NULL;`,
+  },
+
   // ── Housekeeping ─────────────────────────────────────────────────────────────
   {
     name: "prune login_logs older than 90 days",

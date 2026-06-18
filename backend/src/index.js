@@ -102,6 +102,16 @@ function scheduleRawCacheSync(db) {
           ]
         );
       }
+      // Backfill phone for users who auto-logged in before their phone was cached
+      await db.query(`
+        UPDATE users u
+        SET phone = REGEXP_REPLACE(prc.mobile_no, '^(\\+?91)', '')
+        FROM points_raw_cache prc
+        WHERE u.dostt_user_id = prc.dostt_user_id
+          AND u.phone IS NULL
+          AND prc.mobile_no IS NOT NULL
+      `).catch(e => logger.warn("phone backfill failed", { err: e.message }));
+
       logger.info("points_raw_cache synced", { count: rows.length });
     } catch (err) {
       logger.warn("points_raw_cache sync failed", { err: err.message });

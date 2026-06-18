@@ -327,7 +327,45 @@ async function getOrRefreshPoints(phone, countryCode, realMode = false) {
 
 router.get("/me", async (req, res) => {
   try {
-    const { phone, countryCode = "+91" } = req.query;
+    const { countryCode = "+91", dosttUserId: qDosttUserId } = req.query;
+    let phone = req.query.phone;
+
+    // dosttUserId-only session: try to resolve phone from DB
+    if (!phone && qDosttUserId) {
+      const rows = await db.query(
+        "SELECT phone FROM users WHERE dostt_user_id = $1 LIMIT 1",
+        [String(qDosttUserId)]
+      );
+      phone = rows[0]?.phone || null;
+    }
+
+    // Still no phone — user logged in before cache synced; serve from raw cache directly
+    if (!phone && qDosttUserId) {
+      const uid       = String(qDosttUserId);
+      const cacheRows = await db.query("SELECT * FROM points_raw_cache WHERE dostt_user_id = $1", [uid]);
+      const userRows  = await db.query("SELECT * FROM users WHERE dostt_user_id = $1 LIMIT 1", [uid]);
+      const user      = userRows[0];
+      const r         = cacheRows[0];
+      const baseline  = Math.max(0, Number(user?.cycle_baseline_points) || 0);
+      const raw       = r ? Number(r.raw_total_spent) || 0 : 0;
+      const cycleStart = user?.cycle_start_date ? new Date(user.cycle_start_date) : new Date();
+      return res.json({
+        totalSpent:      Math.max(0, raw - baseline),
+        walletBalance:   r ? Number(r.wallet_balance) || 0 : 0,
+        spentOnAudio:    r ? Number(r.spent_on_audio) || 0 : 0,
+        spentOnVideo:    r ? Number(r.spent_on_video) || 0 : 0,
+        ltv:             r ? Number(r.ltv) || 0 : 0,
+        lastRefreshedAt: r?.last_refreshed_at_ist || null,
+        dataUpdatedAt:   r?.synced_at || null,
+        claimedTiers:    [],
+        isTester:        false,
+        cycle: {
+          startDate: cycleStart.toISOString(),
+          endDate:   new Date(cycleStart.getTime() + CYCLE_MS).toISOString(),
+        },
+      });
+    }
+
     if (!phone || !/^\d{7,15}$/.test(phone)) {
       return res.status(400).json({ error: "Invalid phone number" });
     }
@@ -378,11 +416,21 @@ router.get("/me", async (req, res) => {
 
 router.post("/claim", async (req, res) => {
   try {
-    const { phone, countryCode = "+91", claimMode = "api", claimType = "real" } = req.body;
+    const { countryCode = "+91", claimMode = "api", claimType = "real", dosttUserId: bodyDosttUserId } = req.body;
     const tierId = Number(req.body.tierId);
+    let phone = req.body.phone;
+
+    // dosttUserId-only session: try to resolve phone from DB
+    if (!phone && bodyDosttUserId) {
+      const rows = await db.query(
+        "SELECT phone FROM users WHERE dostt_user_id = $1 LIMIT 1",
+        [String(bodyDosttUserId)]
+      );
+      phone = rows[0]?.phone || null;
+    }
 
     if (!phone || !/^\d{7,15}$/.test(phone)) {
-      return res.status(400).json({ error: "Invalid phone number" });
+      return res.status(503).json({ error: "Your account is being set up. Please try again in a few minutes." });
     }
 
     const tier = TIER_DATA.find(t => t.id === tierId);

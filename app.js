@@ -45,7 +45,7 @@ const COUNTRIES = [
 ];
 
 const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-  ? "http://localhost:3001"
+  ? "http://localhost:3001/api"
   : "/api";
 
 async function api(path, options = {}) {
@@ -97,6 +97,7 @@ const state = {
   testMode: null,        // null | "api" | "direct_select" | "bypass" | "real"
   claimType: "real",     // "real" | "dummy"
   showTestModal: false,
+  dosttUserId: null,     // set for auto-login users; used when phone is not yet known
 };
 
 const root = document.getElementById("root");
@@ -854,6 +855,7 @@ function clearSession() {
   localStorage.removeItem("dostt_claimedTiers");
   state.view            = "login";
   state.phone           = "";
+  state.dosttUserId     = null;
   state.country         = COUNTRIES[0];
   state.isTester        = false;
   state.testMode        = null;
@@ -955,7 +957,10 @@ async function loadRewardsData() {
   state.dataRefreshing = true;
   try {
     const realMode = state.testMode === "real";
-    const data = await api(`/rewards/me?phone=${encodeURIComponent(state.phone)}&countryCode=${encodeURIComponent(state.country.code)}${realMode ? "&realMode=true" : ""}`);
+    const meParams = state.phone
+      ? `phone=${encodeURIComponent(state.phone)}&countryCode=${encodeURIComponent(state.country.code)}`
+      : `dosttUserId=${encodeURIComponent(state.dosttUserId)}`;
+    const data = await api(`/rewards/me?${meParams}${realMode ? "&realMode=true" : ""}`);
     state.totalSpent      = data.totalSpent      || 0;
     state.lastRefreshedAt = data.lastRefreshedAt  || null;
     state.dataUpdatedAt   = data.dataUpdatedAt    || null;
@@ -1007,7 +1012,8 @@ window.addEventListener("click", async (event) => {
         method: "POST",
         body: JSON.stringify({
           tierId,
-          phone: state.phone,
+          phone:       state.phone || undefined,
+          dosttUserId: state.dosttUserId || undefined,
           countryCode: state.country.code,
           claimMode: state.testMode === "direct_select" ? "direct_select" : "api",
           claimType: state.claimType || "real",
@@ -1093,12 +1099,56 @@ function initPullToRefresh() {
 
 (async function restoreSession() {
   try {
+    // Auto-login via ?user_id= param (Dostt app banner passes base64-encoded dostt_user_id)
+    // Only fires when there is no existing session — subsequent page loads restore from cache.
+    const urlParams      = new URLSearchParams(window.location.search);
+    const encodedUserId  = urlParams.get("user_id");
+    const existingSession = localStorage.getItem("dostt_session");
+
+    if (encodedUserId && !existingSession) {
+      let dosttUserId;
+      try { dosttUserId = parseInt(atob(encodedUserId), 10); } catch { /* invalid base64 */ }
+
+      if (dosttUserId && !isNaN(dosttUserId)) {
+        state.loading = true;
+        render();
+        try {
+          const data    = await api("/auth/login-by-userid", {
+            method: "POST",
+            body:   JSON.stringify({ dosttUserId }),
+          });
+          const country = COUNTRIES.find(c => c.code === (data.user.countryCode || "+91")) || COUNTRIES[0];
+          // phone may be null for brand-new users not yet in the points cache
+          localStorage.setItem("dostt_session", JSON.stringify({
+            phone:       data.user.phone || null,
+            dosttUserId: data.user.dosttUserId,
+            country,
+          }));
+          state.phone       = data.user.phone || "";
+          state.dosttUserId = data.user.dosttUserId;
+          state.country     = country;
+          state.isTester    = data.isTester || false;
+          state.loading     = false;
+          state.view        = "rewards";
+          rewardsRendered   = false;
+          render();
+          initLottie();
+          loadRewardsData().then(() => { render(); initLottie(); }).catch(() => {});
+          return;
+        } catch (err) {
+          state.loading = false;
+          // auto-login failed → fall through to login page
+        }
+      }
+    }
+
     const saved = localStorage.getItem("dostt_session");
     if (saved) {
       const s = JSON.parse(saved);
-      state.phone   = s.phone   || "";
-      state.country = s.country || COUNTRIES[0];
-      state.isTester = TEST_PHONES.includes(state.phone);
+      state.phone       = s.phone       || "";
+      state.dosttUserId = s.dosttUserId || null;
+      state.country     = s.country     || COUNTRIES[0];
+      state.isTester    = TEST_PHONES.includes(state.phone);
 
       if (state.isTester) {
         // Restore previous test mode so testers don't have to re-pick on every reload.
@@ -1118,6 +1168,12 @@ function initPullToRefresh() {
           state.showTestModal = true;
           render();
         }
+      } else if (!state.phone && state.dosttUserId) {
+        // Auto-login user whose phone isn't known yet — skip verify, go straight to rewards
+        state.view = "rewards";
+        render();
+        initLottie();
+        loadRewardsData().then(() => { render(); initLottie(); }).catch(() => {});
       } else {
         // Show rewards page immediately for good UX
         state.view = "rewards";

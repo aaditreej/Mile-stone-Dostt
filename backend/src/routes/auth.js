@@ -124,6 +124,82 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// POST /auth/login-by-userid
+// body: { dosttUserId }
+// Auto-login path used when the Dostt app banner passes ?user_id=<base64> in the URL.
+// dostt_user_id is the primary identifier — phone is resolved opportunistically and
+// stored when available. If phone is not yet in cache the user is still logged in
+// with 0 points; the 30-min points_raw_cache sync backfills phone automatically.
+// Resolution order: users table (returning) → points_raw_cache (banner cohort)
+router.post("/login-by-userid", async (req, res) => {
+  const { dosttUserId } = req.body;
+  const countryCode = "+91";
+
+  if (!dosttUserId || isNaN(Number(dosttUserId))) {
+    return res.status(400).json({ error: "Invalid user ID" });
+  }
+
+  const userIdStr = String(dosttUserId);
+
+  try {
+    let phone         = null;
+    let rawTotalSpent = null;
+
+    // 1. Returning user — phone already stored in our DB
+    const existingRows = await db.query(
+      "SELECT phone FROM users WHERE dostt_user_id = $1 LIMIT 1",
+      [userIdStr]
+    );
+    if (existingRows.length) phone = existingRows[0].phone || null;
+
+    // 2. Banner cohort — points_raw_cache has mobile_no (synced every 30 min)
+    if (!phone) {
+      const cacheRows = await db.query(
+        "SELECT mobile_no, raw_total_spent FROM points_raw_cache WHERE dostt_user_id = $1 LIMIT 1",
+        [userIdStr]
+      );
+      if (cacheRows.length && cacheRows[0].mobile_no) {
+        phone         = String(cacheRows[0].mobile_no).replace(/^(\+?91)/, "");
+        rawTotalSpent = Number(cacheRows[0].raw_total_spent) || 0;
+      }
+    }
+
+    if (phone) {
+      // Phone resolved — full upsert with cycle setup
+      await db.upsert("users", { phone, country_code: countryCode }, ["phone", "country_code"]);
+      const userRecord = await db.findOne("users", { phone, country_code: countryCode });
+      const updates = { dostt_user_id: userIdStr };
+      if (!userRecord?.cycle_start_date) {
+        updates.cycle_start_date      = new Date();
+        updates.cycle_baseline_points = rawTotalSpent !== null ? rawTotalSpent : -1;
+      }
+      await db.update("users", { phone, country_code: countryCode }, updates);
+    } else {
+      // Phone not yet in cache — create a user record keyed by dostt_user_id only.
+      // The 30-min sync will backfill phone from points_raw_cache.mobile_no.
+      await db.query(
+        `INSERT INTO users (dostt_user_id, country_code, cycle_start_date, cycle_baseline_points)
+         VALUES ($1, $2, NOW(), 0)
+         ON CONFLICT (dostt_user_id) WHERE dostt_user_id IS NOT NULL DO NOTHING`,
+        [userIdStr, countryCode]
+      );
+    }
+
+    await recordLogin(phone || "", countryCode, userIdStr, "success");
+    logger.info("auto-login success", { phone, dosttUserId: userIdStr });
+
+    res.json({
+      success: true,
+      user: { phone: phone || null, dosttUserId: userIdStr, countryCode },
+      isTester: phone ? TEST_PHONES.includes(phone) : false,
+    });
+  } catch (err) {
+    logger.error("login-by-userid error", { dosttUserId: userIdStr, err: err.message });
+    await recordLogin("", countryCode, userIdStr, "failed", err.message);
+    res.status(500).json({ error: "Auto-login failed" });
+  }
+});
+
 // GET /auth/verify?phone=&countryCode=
 // Lightweight session re-validation — same Redash check as /login but
 // writes NO login_log entry and does NOT modify the users table.

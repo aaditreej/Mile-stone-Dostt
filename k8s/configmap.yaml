@@ -8,3 +8,4 @@ data:
   DB_ADAPTER: "postgres"
   CYCLE_DAYS: "30"
   GO_LIVE_DATE: ""   # Set to ISO timestamp when rewards go live, e.g. "2026-01-01T00:00:00+05:30"
+  REDASH_ALL_USERS_QUERY_ID: "18796"
