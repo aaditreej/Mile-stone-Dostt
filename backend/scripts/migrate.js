@@ -368,9 +368,21 @@ const tables = [
 
   // ── Auto-login without phone (dostt_user_id as primary identifier) ───────────
   {
-    name: "users phone nullable + dostt_user_id unique index (safe)",
+    name: "users phone nullable (safe)",
+    sql: `ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;`,
+  },
+  {
+    name: "users deduplicate dostt_user_id (safe)",
     sql: `
-      ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;
+      DELETE FROM users a USING users b
+      WHERE a.dostt_user_id = b.dostt_user_id
+        AND a.dostt_user_id IS NOT NULL
+        AND a.id < b.id;
+    `,
+  },
+  {
+    name: "users dostt_user_id unique index (safe)",
+    sql: `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_users_dostt_user_id
         ON users(dostt_user_id) WHERE dostt_user_id IS NOT NULL;
     `,
