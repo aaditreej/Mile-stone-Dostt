@@ -89,32 +89,45 @@ router.post("/login", async (req, res) => {
 
     const dosttUserId = dosttUser?.user_id || null;
 
-    // Upsert user record
+    if (dosttUserId) {
+      // If auto-login created a null-phone placeholder for this dostt_user_id,
+      // that row is the real one (has correct cycle_start_date/baseline).
+      // Fill in the phone there and drop any stale phone-only duplicate.
+      const placeholderRows = await db.query(
+        "SELECT id FROM users WHERE dostt_user_id = $1 AND phone IS NULL LIMIT 1",
+        [String(dosttUserId)]
+      );
+      if (placeholderRows.length) {
+        // Remove any phone-only row that may have been created by a concurrent upsert
+        await db.query(
+          "DELETE FROM users WHERE phone = $1 AND country_code = $2 AND dostt_user_id IS NULL",
+          [phone, countryCode]
+        );
+        // Fill phone into the real auto-login row (preserves cycle data)
+        await db.query(
+          "UPDATE users SET phone = $1 WHERE dostt_user_id = $2 AND phone IS NULL",
+          [phone, String(dosttUserId)]
+        );
+        await recordLogin(phone, countryCode, dosttUserId, "success");
+        logger.info("login success (placeholder merged)", { phone, isTester, dosttUserId });
+        return res.json({ success: true, user: { phone, countryCode }, isTester });
+      }
+    }
+
+    // No auto-login placeholder — standard upsert by phone
     await db.upsert(
       "users",
       { phone, country_code: countryCode },
       ["phone", "country_code"]
     );
 
-    // Set cycle_start_date on first login only (never overwrite existing)
-    // Always persist dostt_user_id so rewards.js can use it without a Redash call
     const existingUser = await db.findOne("users", { phone, country_code: countryCode });
     const updates = {};
     if (!existingUser?.cycle_start_date) {
       updates.cycle_start_date      = new Date();
-      // Sentinel -1 = "baseline not yet confirmed by a live Redash fetch".
-      // getOrRefreshPoints sets it to rawTotalSpent on the first successful fetch,
-      // regardless of whether a cached user_points row already exists (avoids the
-      // stale-BQ-at-first-fetch bug where pre-login spend would be counted).
       updates.cycle_baseline_points = -1;
     }
     if (dosttUserId) {
-      // Remove any null-phone placeholder row created by auto-login for this dostt_user_id
-      // before setting it on the real phone row — prevents unique constraint violation
-      await db.query(
-        "DELETE FROM users WHERE dostt_user_id = $1 AND phone IS NULL",
-        [String(dosttUserId)]
-      );
       updates.dostt_user_id = dosttUserId;
     }
     if (Object.keys(updates).length) {
